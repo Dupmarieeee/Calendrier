@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { 
   ArrowRight, 
@@ -35,15 +36,24 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
             FocusCalendar
           </div>
           
-          <div className="flex items-center gap-8">
-            <div className="hidden md:flex items-center gap-8 text-[10px] font-black uppercase tracking-widest text-slate-500">
-              <a href="#avantages" className="hover:text-indigo-600 transition-colors">Avantages</a>
-              <a href="#blog" className="hover:text-indigo-600 transition-colors">Blog</a>
-              <button onClick={onLogin} className="hover:text-indigo-600 transition-colors">Connexion</button>
+          <div className="flex items-center gap-4 lg:gap-8">
+            <div className="hidden md:flex items-center gap-8 text-[10px] font-black uppercase tracking-widest text-slate-500 mr-2">
+              <a href="#blog" className="hover:text-indigo-600 transition-colors">BLOG</a>
             </div>
-            <button onClick={onStart} className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100">
-              S'inscrire
-            </button>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={onLogin} 
+                className="bg-indigo-50 text-indigo-600 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-100 transition-all"
+              >
+                CONNEXION
+              </button>
+              <button 
+                onClick={onStart} 
+                className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
+              >
+                S'INSCRIRE
+              </button>
+            </div>
           </div>
         </div>
       </nav>
@@ -52,7 +62,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
       <section className="pt-32 lg:pt-40 pb-24 px-6 bg-white overflow-hidden">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-12 lg:gap-8">
           
-          {/* Hero Content - Narrower width to leave room for the enlarged dashboard */}
+          {/* Hero Content */}
           <div className="w-full lg:w-[40%] space-y-8 animate-in fade-in slide-in-from-left duration-700 z-10">
             <h1 className="text-4xl lg:text-5xl font-black text-slate-900 leading-[1.15] tracking-tight text-left">
               Gérez votre temps, <br/>
@@ -66,26 +76,22 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
                 onClick={onStart} 
                 className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all shadow-[0_15px_35px_rgba(79,70,229,0.35)] flex items-center justify-center gap-2 border-b-4 border-indigo-800/50"
               >
-                Commencer l'aventure <ArrowRight size={16} />
+                COMMENCER L'AVENTURE <ArrowRight size={16} />
               </button>
             </div>
           </div>
 
-          {/* DASHBOARD MOCKUP - ENLARGED AS REQUESTED */}
+          {/* DASHBOARD MOCKUP - ENLARGED */}
           <div className="w-full lg:w-[60%] relative animate-in fade-in slide-in-from-right duration-1000 flex justify-end">
-            {/* Background Glow */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-indigo-50 rounded-full blur-[100px] opacity-40 -z-10"></div>
             
-            {/* Main Application Frame - SCALED UP for better visibility */}
-            <div className="bg-[#f3f4f6] rounded-[2.5rem] shadow-[0_40px_100px_rgba(0,0,0,0.15)] border border-slate-200 overflow-hidden flex flex-row text-left aspect-[16/10] p-4 lg:p-6 gap-6 scale-90 lg:scale-[0.8] origin-right lg:-mr-16">
+            <div className="bg-[#f3f4f6] rounded-[2.5rem] shadow-[0_40px_100px_rgba(0,0,0,0.15)] border border-slate-200 overflow-hidden flex flex-row text-left aspect-[16/10] p-4 lg:p-6 gap-6 scale-95 lg:scale-[0.85] origin-right lg:-mr-16">
               
-              {/* Sidebar Left */}
               <aside className="w-64 lg:w-72 flex flex-col gap-6 shrink-0">
                 <header>
                   <h2 className="text-xl font-black text-slate-800">Bonjour marie 👋</h2>
                 </header>
 
-                {/* Card Energie Focus */}
                 <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 flex flex-col gap-3">
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col">
@@ -114,7 +120,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
                   </div>
                 </div>
 
-                {/* Card Sommeil */}
                 <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 flex flex-col gap-5">
                    <h3 className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
                      <Moon size={14} className="text-indigo-500" /> Sommeil
@@ -145,14 +150,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
                       </div>
                    </div>
                 </div>
-
-                {/* Performance mockup at bottom */}
-                <div className="mt-auto flex items-center gap-2 px-2 text-slate-400 font-black text-[10px] uppercase tracking-widest">
-                   <BarChart size={16} /> Performance
-                </div>
               </aside>
 
-              {/* Main Content Area */}
               <main className="flex-1 flex flex-col gap-6 overflow-hidden">
                 <header className="flex items-center justify-between bg-white rounded-[1.75rem] p-3 border border-slate-200 shadow-sm">
                    <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
@@ -174,7 +173,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
                 </header>
 
                 <div className="flex-1 bg-white rounded-[2.5rem] shadow-sm border border-slate-200 flex flex-col overflow-hidden">
-                   {/* Days Header */}
                    <div className="flex border-b border-slate-100">
                       <div className="w-16 h-14 border-r border-slate-100" />
                       <div className="flex-1 grid grid-cols-7 text-center">
@@ -191,7 +189,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
                       </div>
                    </div>
 
-                   {/* Grid Content */}
                    <div className="flex-1 overflow-hidden grid grid-cols-[64px_1fr]">
                       <div className="border-r border-slate-100 bg-slate-50/50">
                          {[0, 1, 2].map(h => (
@@ -207,7 +204,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
                       </div>
                    </div>
 
-                   {/* Categories Summary Bottom */}
                    <div className="p-6 border-t border-slate-100 bg-white">
                       <div className="flex flex-col gap-4">
                          <div className="flex items-center justify-between">
@@ -217,7 +213,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
                          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
                             {[
                               { label: 'FORMATION', color: '#c084fc', light: '#f3e8ff' },
-                              { label: 'ÉTUDE DE CONCURRENCE', color: '#60a5fa', light: '#dbeafe' },
+                              { label: 'ÉTUDE DE LA CONCURRENCE', color: '#60a5fa', light: '#dbeafe' },
                               { label: 'PROSPECTION', color: '#fbbf24', light: '#fef3c7' },
                               { label: 'RÉSEAUX SOCIAUX', color: '#4ade80', light: '#dcfce7' }
                             ].map((cat, idx) => (
@@ -292,7 +288,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
                <p className="text-4xl font-black text-slate-900">Conseils d'experts.</p>
             </div>
             <button className="hidden sm:flex items-center gap-2 text-indigo-600 font-black uppercase tracking-widest text-xs hover:underline decoration-2 underline-offset-8">
-              Voir tous les articles <ChevronRight size={16} />
+              VOIR TOUS LES ARTICLES <ChevronRight size={16} />
             </button>
           </div>
 
@@ -306,7 +302,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
               { 
                 category: "Sommeil", 
                 title: "Pourquoi le réveil à 7h change tout pour votre cerveau", 
-                img: "https://images.unsplash.com/photo-1541480601022-2305c9f02b39?auto=format&fit=crop&q=80&w=500" 
+                img: "https://images.unsplash.com/photo-1512428559083-a4051ba836c0?auto=format&fit=crop&q=80&w=500" 
               },
               { 
                 category: "Gamification", 
