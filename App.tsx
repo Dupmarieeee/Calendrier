@@ -48,7 +48,15 @@ interface UserProfile {
   id: string;
   name: string;
   email: string;
+  password?: string; // Ajout du mot de passe
   timezone: string;
+  data?: {
+    tasks: Task[];
+    todos: TodoItem[];
+    categories: Category[];
+    sleep: SleepSchedule;
+    growth: GrowthState;
+  };
 }
 
 const GROWTH_THRESHOLDS = [0, 50, 150, 400];
@@ -273,41 +281,49 @@ const App: React.FC = () => {
     if (savedUserId && usersJson) {
       const users: UserProfile[] = JSON.parse(usersJson);
       const user = users.find(u => u.id === savedUserId);
-      if (user) { setCurrentUser(user); setAppView('dashboard'); }
+      if (user) { 
+        setCurrentUser(user); 
+        // Restaurer les données depuis l'objet utilisateur s'il existe
+        if (user.data) {
+          setTasks(user.data.tasks || []);
+          setTodos(user.data.todos || []);
+          setCategories(user.data.categories || INITIAL_CATEGORIES);
+          setSleep(user.data.sleep || { enabled: true, bedtime: '23:30', wakeTime: '07:00' });
+          setGrowth(user.data.growth || { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 });
+        }
+        setAppView('dashboard'); 
+      }
     }
     setIsAuthLoading(false);
   }, []);
 
   const generateSyncToken = useCallback(() => {
     if (!currentUser) return "";
-    const payload = { user: currentUser, tasks, todos, categories, sleep, growth, timestamp: Date.now() };
+    const payload = { 
+      user: { ...currentUser, data: undefined }, // On enlève les data imbriquées pour ne pas doubler
+      tasks, 
+      todos, 
+      categories, 
+      sleep, 
+      growth, 
+      timestamp: Date.now() 
+    };
     return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
   }, [currentUser, tasks, todos, categories, sleep, growth]);
 
-  useEffect(() => {
-    if (!currentUser) { setDataLoaded(false); return; }
-    const prefix = `focus_data_${currentUser.id}_`;
-    const savedTasks = localStorage.getItem(`${prefix}tasks`);
-    const savedTodos = localStorage.getItem(`${prefix}todos`);
-    const savedCategories = localStorage.getItem(`${prefix}categories`);
-    const savedSleep = localStorage.getItem(`${prefix}sleep`);
-    const savedGrowth = localStorage.getItem(`${prefix}growth`);
-    setTasks(savedTasks ? JSON.parse(savedTasks) : []);
-    setTodos(savedTodos ? JSON.parse(savedTodos) : []);
-    setCategories(savedCategories ? JSON.parse(savedCategories) : INITIAL_CATEGORIES);
-    setSleep(savedSleep ? JSON.parse(savedSleep) : { enabled: true, bedtime: '23:30', wakeTime: '07:00' });
-    if (savedGrowth) setGrowth(JSON.parse(savedGrowth));
-    setDataLoaded(true);
-  }, [currentUser]);
-
+  // Sauvegarde globale automatique dans la "Base de données" locale
   useEffect(() => {
     if (!currentUser || !dataLoaded) return;
-    const prefix = `focus_data_${currentUser.id}_`;
-    localStorage.setItem(`${prefix}tasks`, JSON.stringify(tasks));
-    localStorage.setItem(`${prefix}todos`, JSON.stringify(todos));
-    localStorage.setItem(`${prefix}categories`, JSON.stringify(categories));
-    localStorage.setItem(`${prefix}sleep`, JSON.stringify(sleep));
-    localStorage.setItem(`${prefix}growth`, JSON.stringify(growth));
+    
+    const usersJson = localStorage.getItem('focus_users_db');
+    if (usersJson) {
+      let users: UserProfile[] = JSON.parse(usersJson);
+      const index = users.findIndex(u => u.id === currentUser.id);
+      if (index !== -1) {
+        users[index].data = { tasks, todos, categories, sleep, growth };
+        localStorage.setItem('focus_users_db', JSON.stringify(users));
+      }
+    }
   }, [tasks, todos, categories, sleep, growth, currentUser, dataLoaded]);
 
   const dailyPoints = useMemo(() => {
@@ -404,8 +420,30 @@ const App: React.FC = () => {
       if (data.user && data.tasks) {
         const usersJson = localStorage.getItem('focus_users_db');
         let users: UserProfile[] = usersJson ? JSON.parse(usersJson) : [];
-        if (!users.find(u => u.id === data.user.id)) { users.push(data.user); localStorage.setItem('focus_users_db', JSON.stringify(users)); }
-        setCurrentUser(data.user);
+        
+        // On fusionne ou remplace les données locales par celles du jeton
+        const existingUserIndex = users.findIndex(u => u.email.toLowerCase() === data.user.email.toLowerCase());
+        const importedUser = {
+          ...data.user,
+          data: {
+            tasks: data.tasks,
+            todos: data.todos,
+            categories: data.categories,
+            sleep: data.sleep,
+            growth: data.growth
+          }
+        };
+
+        if (existingUserIndex !== -1) {
+          users[existingUserIndex] = importedUser;
+        } else {
+          users.push(importedUser);
+        }
+
+        localStorage.setItem('focus_users_db', JSON.stringify(users));
+        localStorage.setItem('focus_last_active_user', importedUser.id);
+        
+        setCurrentUser(importedUser);
         setTasks(data.tasks);
         setTodos(data.todos);
         setCategories(data.categories);
@@ -415,7 +453,10 @@ const App: React.FC = () => {
         setAppView('dashboard');
         return true;
       }
-    } catch (e) { return false; }
+    } catch (e) { 
+      console.error("Token restore error", e);
+      return false; 
+    }
     return false;
   };
 
@@ -424,7 +465,19 @@ const App: React.FC = () => {
   if (appView === 'auth' && !currentUser) return (
     <AuthScreen 
       initialIsLogin={authMode === 'login'}
-      onAuthSuccess={user => { setCurrentUser(user); localStorage.setItem('focus_last_active_user', user.id); setAppView('dashboard'); }} 
+      onAuthSuccess={user => { 
+        setCurrentUser(user); 
+        localStorage.setItem('focus_last_active_user', user.id); 
+        if (user.data) {
+          setTasks(user.data.tasks || []);
+          setTodos(user.data.todos || []);
+          setCategories(user.data.categories || INITIAL_CATEGORIES);
+          setSleep(user.data.sleep || { enabled: true, bedtime: '23:30', wakeTime: '07:00' });
+          setGrowth(user.data.growth || { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 });
+        }
+        setDataLoaded(true);
+        setAppView('dashboard'); 
+      }} 
       onTokenRestore={restoreFromToken}
       isDarkMode={isDarkMode} 
       onBack={() => setAppView('landing')} 
@@ -704,9 +757,16 @@ const SettingsModal: React.FC<{
   );
 };
 
-const AuthScreen: React.FC<{ initialIsLogin?: boolean, onAuthSuccess: (u: UserProfile) => void, onTokenRestore: (t: string) => boolean, isDarkMode: boolean, onBack: () => void }> = ({ initialIsLogin = false, onAuthSuccess, onTokenRestore, onBack }) => {
+const AuthScreen: React.FC<{ 
+  initialIsLogin?: boolean, 
+  onAuthSuccess: (u: UserProfile) => void, 
+  onTokenRestore: (t: string) => boolean, 
+  isDarkMode: boolean, 
+  onBack: () => void 
+}> = ({ initialIsLogin = false, onAuthSuccess, onTokenRestore, onBack }) => {
   const [isLogin, setIsLogin] = useState(initialIsLogin);
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [syncToken, setSyncToken] = useState('');
@@ -718,16 +778,30 @@ const AuthScreen: React.FC<{ initialIsLogin?: boolean, onAuthSuccess: (u: UserPr
     let users: UserProfile[] = usersJson ? JSON.parse(usersJson) : [];
 
     if (isLogin) {
-      if (!email) { setError("Veuillez saisir votre email."); return; }
+      if (!email || !password) { setError("Veuillez remplir tous les champs."); return; }
       const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-      if (user) onAuthSuccess(user);
-      else setError("Email non reconnu sur cet appareil. Utilisez votre Jeton Focus pour restaurer vos données.");
+      if (user) {
+        if (user.password === password) {
+          onAuthSuccess(user);
+        } else {
+          setError("Mot de passe incorrect.");
+        }
+      }
+      else setError("Compte non trouvé. Utilisez un Jeton Focus pour importer vos données d'un autre appareil.");
     } else {
-      if (!name || !email) { setError("Tous les champs sont requis."); return; }
+      if (!name || !email || !password) { setError("Tous les champs sont requis."); return; }
       const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-      if (existingUser) onAuthSuccess(existingUser);
+      if (existingUser) {
+        setError("Cet email est déjà utilisé. Veuillez vous connecter.");
+      }
       else {
-        const newUser: UserProfile = { id: Math.random().toString(36).substr(2, 9), name, email, timezone: 'Europe/Paris' };
+        const newUser: UserProfile = { 
+          id: Math.random().toString(36).substr(2, 9), 
+          name, 
+          email, 
+          password, 
+          timezone: 'Europe/Paris' 
+        };
         users.push(newUser);
         localStorage.setItem('focus_users_db', JSON.stringify(users));
         onAuthSuccess(newUser);
@@ -738,7 +812,7 @@ const AuthScreen: React.FC<{ initialIsLogin?: boolean, onAuthSuccess: (u: UserPr
   const handleTokenRestore = () => {
     if (!syncToken) return;
     const success = onTokenRestore(syncToken);
-    if (!success) setError("Jeton invalide.");
+    if (!success) setError("Jeton invalide. Vérifiez que vous l'avez bien copié entièrement.");
   };
 
   return (
@@ -748,7 +822,7 @@ const AuthScreen: React.FC<{ initialIsLogin?: boolean, onAuthSuccess: (u: UserPr
         
         <div className="text-center space-y-2 pt-6">
           <h2 className="text-3xl font-black text-slate-800 dark:text-white uppercase tracking-tight">{isLogin ? 'CONNEXION' : 'CRÉER UN COMPTE'}</h2>
-          <p className="text-slate-400 text-sm font-medium">{isLogin ? 'Entrez votre email pour accéder à votre espace.' : "Rejoignez l'aventure dès maintenant."}</p>
+          <p className="text-slate-400 text-sm font-medium">{isLogin ? 'Entrez vos identifiants pour accéder à votre espace.' : "Rejoignez l'aventure dès maintenant."}</p>
         </div>
 
         <div className="flex flex-col gap-5">
@@ -759,19 +833,24 @@ const AuthScreen: React.FC<{ initialIsLogin?: boolean, onAuthSuccess: (u: UserPr
               {!isLogin && (
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">PRÉNOM</label>
-                  <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre prénom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all" />
+                  <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre prénom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
                 </div>
               )}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">EMAIL</label>
-                <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="votre@email.com" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all" onKeyDown={(e) => e.key === 'Enter' && handleAuth()} />
+                <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="votre@email.com" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">MOT DE PASSE</label>
+                <input value={password} onChange={e => setPassword(e.target.value)} type="password" placeholder="••••••••" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" onKeyDown={(e) => e.key === 'Enter' && handleAuth()} />
               </div>
 
               {!isLogin && (
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">FUSEAU HORAIRE</label>
                   <div className="relative">
-                    <select className="w-full bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none appearance-none cursor-pointer border border-transparent focus:border-indigo-500">
+                    <select className="w-full bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none appearance-none cursor-pointer border border-transparent focus:border-indigo-500 shadow-sm">
                       <option value="Europe/Paris">Europe/Paris (UTC+1)</option>
                     </select>
                     <ChevronRightIcon size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 rotate-90" />
@@ -779,15 +858,20 @@ const AuthScreen: React.FC<{ initialIsLogin?: boolean, onAuthSuccess: (u: UserPr
                 </div>
               )}
 
-              <button onClick={handleAuth} className="w-full py-5 rounded-[1.5rem] bg-indigo-600 text-white font-black shadow-[0_15px_35px_rgba(79,70,229,0.3)] hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest mt-2">{isLogin ? 'SE CONNECTER' : "C'EST PARTI !"}</button>
+              <button onClick={handleAuth} className="w-full py-5 rounded-[1.5rem] bg-indigo-600 text-white font-black shadow-[0_15px_35px_rgba(79,70,229,0.3)] hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest mt-2">
+                {isLogin ? 'SE CONNECTER' : "C'EST PARTI !"}
+              </button>
             </>
           ) : (
             <div className="flex flex-col gap-4 animate-in slide-in-from-bottom duration-300">
                <div className="flex flex-col gap-1.5">
-                 <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">JETON FOCUS</label>
-                 <textarea value={syncToken} onChange={e => setSyncToken(e.target.value)} placeholder="Collez votre jeton généré sur votre autre appareil..." className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none h-32 text-[10px] leading-relaxed resize-none border border-transparent focus:border-emerald-500" />
+                 <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">JETON FOCUS (TRANSFERT)</label>
+                 <textarea value={syncToken} onChange={e => setSyncToken(e.target.value)} placeholder="Collez votre jeton de transfert ici..." className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none h-32 text-[10px] leading-relaxed resize-none border border-transparent focus:border-emerald-500 shadow-sm" />
                </div>
-               <button onClick={handleTokenRestore} className="w-full py-5 rounded-[1.5rem] bg-emerald-600 text-white font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest">RESTAURER LES DONNÉES</button>
+               <p className="text-[9px] text-slate-400 px-4 text-center italic">Cette opération importera votre compte et tous vos rendez-vous sur cet ordinateur.</p>
+               <button onClick={handleTokenRestore} className="w-full py-5 rounded-[1.5rem] bg-emerald-600 text-white font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest">
+                IMPORTER MES DONNÉES
+               </button>
             </div>
           )}
         </div>
