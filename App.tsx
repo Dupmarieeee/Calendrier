@@ -34,7 +34,9 @@ import {
   Lock,
   Eye,
   EyeOff,
-  Cloud
+  Cloud,
+  Check,
+  AlertCircle
 } from 'lucide-react';
 import { Category, Task, TodoItem, SleepSchedule, GrowthType, GrowthState } from './types';
 import { INITIAL_CATEGORIES, TIME_SLOTS, DAYS_FR } from './constants';
@@ -86,7 +88,7 @@ const formatTimeDisplay = (hours: number) => {
   return `${h}h ${m}min`;
 };
 
-// --- COMPOSANTS WIDGETS ---
+// --- WIDGETS ---
 
 const GrowthWidget: React.FC<{ growth: GrowthState, dailyPoints: number, isDarkMode: boolean, onSelect: () => void }> = ({ growth, dailyPoints, isDarkMode, onSelect }) => {
   const stage = GROWTH_THRESHOLDS.findIndex((t, i) => {
@@ -246,11 +248,10 @@ const TaskModal: React.FC<{
   );
 };
 
-// --- COMPOSANT PRINCIPAL APP ---
+// --- APP COMPONENT ---
 
 const App: React.FC = () => {
   const [appView, setAppView] = useState<'landing' | 'auth' | 'dashboard'>('landing');
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('focus_dark_mode') === 'true');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -306,7 +307,6 @@ const App: React.FC = () => {
   };
 
   // SAUVEGARDE AUTOMATIQUE SUR LE COMPTE
-  // Cet effet synchronise toutes les données locales dans l'entrée de l'utilisateur de la "Base de données" simulée.
   useEffect(() => {
     if (!currentUser || !dataLoaded) return;
     
@@ -317,8 +317,6 @@ const App: React.FC = () => {
       if (index !== -1) {
         users[index].data = { tasks, todos, categories, sleep, growth };
         localStorage.setItem('focus_users_db', JSON.stringify(users));
-        // Optionnel : On peut aussi sauvegarder le profil complet pour plus de sécurité
-        setCurrentUser(users[index]);
       }
     }
   }, [tasks, todos, categories, sleep, growth, currentUser, dataLoaded]);
@@ -412,17 +410,15 @@ const App: React.FC = () => {
   }, []);
 
   if (isAuthLoading) return <div className="flex items-center justify-center h-screen"><div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>;
-  if (appView === 'landing') return <LandingPage onStart={() => { setAuthMode('signup'); setAppView('auth'); }} onLogin={() => { setAuthMode('login'); setAppView('auth'); }} />;
+  if (appView === 'landing') return <LandingPage onStart={() => setAppView('auth')} onLogin={() => setAppView('auth')} />;
   if (appView === 'auth' && !currentUser) return (
     <AuthScreen 
-      initialIsLogin={authMode === 'login'}
       onAuthSuccess={user => { 
         loadUserData(user);
         localStorage.setItem('focus_last_active_user', user.id); 
         setAppView('dashboard'); 
       }} 
       onBack={() => setAppView('landing')} 
-      // Fix: Add isDarkMode prop to AuthScreen
       isDarkMode={isDarkMode}
     />
   );
@@ -512,7 +508,7 @@ const App: React.FC = () => {
           </div>
           <div className="flex items-center gap-3">
              <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-2 rounded-xl text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-500/20">
-               <Cloud size={16} /> <span className="text-[10px] font-black uppercase tracking-widest">SYNCHRONISATION AUTOMATIQUE</span>
+               <Cloud size={16} /> <span className="text-[10px] font-black uppercase tracking-widest">CLOUD SYNC ACTIF</span>
             </div>
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-3 bg-white dark:bg-white/10 rounded-2xl border border-gray-100 dark:border-white/10">{isDarkMode ? <Sun className="text-amber-400" /> : <Moon className="text-slate-600" />}</button>
             <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="p-3 bg-[#1e293b] dark:bg-indigo-600 text-white rounded-2xl shadow-lg hover:scale-105 transition-transform"><Plus /></button>
@@ -622,7 +618,7 @@ const App: React.FC = () => {
 
       {/* MODALS */}
       {isModalOpen && <TaskModal categories={categories} onClose={() => { setIsModalOpen(false); setEditingTask(null); }} onSubmit={data => { if (editingTask) setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, ...data } : t)); else setTasks([...tasks, { ...data, id: Math.random().toString(36).substr(2, 9), actualSeconds: 0, isCompleted: false }]); setIsModalOpen(false); }} onDelete={editingTask ? () => { setTasks(tasks.filter(t => t.id !== editingTask.id)); setIsModalOpen(false); } : undefined} taskToEdit={editingTask || undefined} isDarkMode={isDarkMode} onAddCategory={(name, color) => { const id = `cat-${Math.random().toString(36).substr(2, 9)}`; setCategories([...categories, { id, name, color, lightColor: `${color}20` }]); return id; }} onRemoveCategory={id => setCategories(categories.filter(c => c.id !== id))} selectedDate={currentDate} />}
-      {isSettingsModalOpen && <SettingsModal userName={currentUser?.name || ''} onClose={() => setIsSettingsModalOpen(false)} onLogout={handleLogout} onSave={(n) => { if (currentUser) setCurrentUser({ ...currentUser, name: n }); setIsSettingsModalOpen(false); }} />}
+      {isSettingsModalOpen && <SettingsModal userName={currentUser?.name || ''} userEmail={currentUser?.email || ''} onClose={() => setIsSettingsModalOpen(false)} onLogout={handleLogout} onSave={(n) => { if (currentUser) setCurrentUser({ ...currentUser, name: n }); setIsSettingsModalOpen(false); }} />}
       {isGrowthSelectOpen && <GrowthSelectionModal onSelect={type => { setGrowth(prev => ({ ...prev, type })); setIsGrowthSelectOpen(false); }} isDarkMode={isDarkMode} />}
     </div>
   );
@@ -632,10 +628,11 @@ const App: React.FC = () => {
 
 const SettingsModal: React.FC<{ 
   userName: string, 
+  userEmail: string,
   onClose: () => void, 
   onLogout: () => void, 
   onSave: (name: string) => void
-}> = ({ userName, onClose, onLogout, onSave }) => {
+}> = ({ userName, userEmail, onClose, onLogout, onSave }) => {
   const [name, setName] = useState(userName);
 
   return (
@@ -648,17 +645,26 @@ const SettingsModal: React.FC<{
 
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">VOTRE NOM</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre nom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold text-slate-800 dark:text-white outline-none focus:ring-2 ring-indigo-500" />
+            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">PROFIL</label>
+            <div className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nom</label>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre nom" className="bg-white dark:bg-white/5 p-3 rounded-xl font-bold text-slate-800 dark:text-white outline-none border border-slate-100 dark:border-white/10" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Email (Identifiant Cloud)</label>
+                <div className="bg-slate-100 dark:bg-black/20 p-3 rounded-xl font-bold text-slate-400 cursor-not-allowed text-xs">{userEmail}</div>
+              </div>
+            </div>
           </div>
 
           <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-500/10">
              <div className="flex items-center gap-2 mb-2">
                 <Cloud size={16} className="text-indigo-600" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">Synchronisation active</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">Compte Synchronisé</span>
              </div>
              <p className="text-[10px] font-medium text-indigo-600/80 dark:text-indigo-300/60 leading-relaxed">
-               Toutes vos modifications sont automatiquement sauvegardées sur votre compte. Connectez-vous sur n'importe quel appareil avec votre email et mot de passe pour les retrouver.
+               Vos données sont liées à votre adresse email. Connectez-vous sur n'importe quel appareil avec cet email et votre mot de passe pour retrouver vos rendez-vous.
              </p>
           </div>
         </div>
@@ -679,106 +685,154 @@ const SettingsModal: React.FC<{
 // --- AUTH SCREEN ---
 
 const AuthScreen: React.FC<{ 
-  initialIsLogin?: boolean, 
   onAuthSuccess: (u: UserProfile) => void, 
   isDarkMode: boolean, 
   onBack: () => void 
-}> = ({ initialIsLogin = false, onAuthSuccess, isDarkMode, onBack }) => {
-  const [isLogin, setIsLogin] = useState(initialIsLogin);
+}> = ({ onAuthSuccess, onBack }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [step, setStep] = useState<'email' | 'password' | 'signup'>('email');
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
 
-  const handleAuth = () => {
+  // Détection automatique du compte par email
+  const handleCheckEmail = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setError('');
+    if (!email || !email.includes('@')) { setError("Veuillez entrer un email valide."); return; }
+    
+    setIsChecking(true);
+    // Simulation d'appel serveur pour vérifier si le compte existe
+    setTimeout(() => {
+      const usersJson = localStorage.getItem('focus_users_db');
+      let users: UserProfile[] = usersJson ? JSON.parse(usersJson) : [];
+      const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+      
+      if (user) {
+        setStep('password'); // Le compte existe -> demande du mot de passe
+      } else {
+        setStep('signup'); // Nouveau compte -> demande prénom + mot de passe
+      }
+      setIsChecking(false);
+    }, 600);
+  };
+
+  const handleAuth = (e?: React.FormEvent) => {
+    e?.preventDefault();
     setError('');
     const usersJson = localStorage.getItem('focus_users_db');
     let users: UserProfile[] = usersJson ? JSON.parse(usersJson) : [];
 
-    if (isLogin) {
-      if (!email || !password) { setError("Veuillez remplir tous les champs."); return; }
+    if (step === 'password') {
+      // MODE CONNEXION
       const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-      if (user) {
-        if (user.password === password) {
-          onAuthSuccess(user);
-        } else {
-          setError("Mot de passe incorrect.");
-        }
+      if (user && user.password === password) {
+        onAuthSuccess(user);
+      } else {
+        setError("Mot de passe incorrect.");
       }
-      else setError("Aucun compte trouvé avec cet email. Veuillez vous inscrire pour créer votre espace.");
     } else {
-      if (!name || !email || !password) { setError("Tous les champs sont requis."); return; }
-      const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-      if (existingUser) {
-        setError("Cet email est déjà associé à un compte. Veuillez vous connecter.");
-      }
-      else {
-        const newUser: UserProfile = { 
-          id: Math.random().toString(36).substr(2, 9), 
-          name, 
-          email, 
-          password, 
-          timezone: 'Europe/Paris',
-          data: {
-            tasks: [],
-            todos: [],
-            categories: INITIAL_CATEGORIES,
-            sleep: { enabled: true, bedtime: '23:30', wakeTime: '07:00' },
-            growth: { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 }
-          }
-        };
-        users.push(newUser);
-        localStorage.setItem('focus_users_db', JSON.stringify(users));
-        onAuthSuccess(newUser);
-      }
+      // MODE INSCRIPTION
+      if (!name || !password) { setError("Veuillez remplir tous les champs."); return; }
+      const newUser: UserProfile = { 
+        id: Math.random().toString(36).substr(2, 9), 
+        name, 
+        email, 
+        password, 
+        timezone: 'Europe/Paris',
+        data: {
+          tasks: [],
+          todos: [],
+          categories: INITIAL_CATEGORIES,
+          sleep: { enabled: true, bedtime: '23:30', wakeTime: '07:00' },
+          growth: { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 }
+        }
+      };
+      users.push(newUser);
+      localStorage.setItem('focus_users_db', JSON.stringify(users));
+      onAuthSuccess(newUser);
     }
   };
 
   return (
     <div className="h-screen bg-slate-50 dark:bg-black flex items-center justify-center p-6">
       <div className="bg-white dark:bg-[#0a0a0a] p-10 rounded-[4rem] shadow-2xl max-w-md w-full border border-gray-100 dark:border-white/5 flex flex-col gap-6 relative animate-in fade-in zoom-in duration-500">
-        <button onClick={onBack} className="absolute top-10 left-10 text-slate-400 hover:text-indigo-600 transition-colors"><ChevronLeft /></button>
+        <button onClick={() => step === 'email' ? onBack() : setStep('email')} className="absolute top-10 left-10 text-slate-400 hover:text-indigo-600 transition-colors"><ChevronLeft /></button>
         
         <div className="text-center space-y-2 pt-6">
-          <h2 className="text-3xl font-black text-slate-800 dark:text-white uppercase tracking-tight">{isLogin ? 'CONNEXION' : 'CRÉER UN COMPTE'}</h2>
-          <p className="text-slate-400 text-sm font-medium">{isLogin ? 'Entrez vos identifiants pour retrouver vos rendez-vous.' : "Créez votre compte pour commencer à planifier."}</p>
+          <h2 className="text-3xl font-black text-slate-800 dark:text-white uppercase tracking-tight">
+            {step === 'email' ? 'Bienvenue' : step === 'password' ? 'Ravi de vous revoir' : 'Créer un compte'}
+          </h2>
+          <p className="text-slate-400 text-sm font-medium">
+            {step === 'email' ? 'Entrez votre email pour accéder à vos données.' : step === 'password' ? 'Entrez votre mot de passe.' : "Définissez votre profil."}
+          </p>
         </div>
 
-        <div className="flex flex-col gap-5">
-          {error && <div className="text-red-500 text-[10px] font-black uppercase text-center bg-red-50 dark:bg-red-900/20 p-4 rounded-2xl border border-red-100 dark:border-red-500/20">{error}</div>}
-          
-          {!isLogin && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">PRÉNOM</label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre prénom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
+        <form onSubmit={step === 'email' ? handleCheckEmail : handleAuth} className="flex flex-col gap-5">
+          {error && (
+            <div className="text-red-500 text-[10px] font-black uppercase text-center bg-red-50 dark:bg-red-900/20 p-4 rounded-2xl border border-red-100 dark:border-red-500/20 flex items-center gap-2 justify-center">
+              <AlertCircle size={14} /> {error}
             </div>
           )}
           
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">EMAIL</label>
-            <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="votre@email.com" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">MOT DE PASSE</label>
             <div className="relative">
-              <input value={password} onChange={e => setPassword(e.target.value)} type={showPassword ? "text" : "password"} placeholder="••••••••" className="w-full bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" onKeyDown={(e) => e.key === 'Enter' && handleAuth()} />
-              <button onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 transition-colors">
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
+              <input 
+                value={email} 
+                onChange={e => setEmail(e.target.value)} 
+                type="email" 
+                disabled={step !== 'email'}
+                placeholder="votre@email.com" 
+                className={`w-full p-4 rounded-[1.5rem] font-bold outline-none border border-transparent transition-all shadow-sm ${step === 'email' ? 'bg-slate-50 dark:bg-white/5 text-slate-900 dark:text-white focus:border-indigo-500' : 'bg-slate-100 dark:bg-white/10 text-slate-400'}`} 
+              />
+              {step !== 'email' && <button type="button" onClick={() => setStep('email')} className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-indigo-500 uppercase">Modifier</button>}
             </div>
           </div>
 
-          <button onClick={handleAuth} className="w-full py-5 rounded-[1.5rem] bg-indigo-600 text-white font-black shadow-[0_15px_35px_rgba(79,70,229,0.3)] hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest mt-2 flex items-center justify-center gap-2">
-            {isLogin ? <><Lock size={16} /> SE CONNECTER</> : <><Plus size={16} /> C'EST PARTI !</>}
+          {step === 'signup' && (
+            <div className="flex flex-col gap-1.5 animate-in slide-in-from-top duration-300">
+              <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">PRÉNOM</label>
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre prénom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
+            </div>
+          )}
+
+          {step !== 'email' && (
+            <div className="flex flex-col gap-1.5 animate-in slide-in-from-top duration-300">
+              <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">
+                {step === 'password' ? 'MOT DE PASSE' : 'DÉFINIR UN MOT DE PASSE'}
+              </label>
+              <div className="relative">
+                <input value={password} onChange={e => setPassword(e.target.value)} type={showPassword ? "text" : "password"} placeholder="••••••••" className="w-full bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 transition-colors">
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <button 
+            type="submit" 
+            className="w-full py-5 rounded-[1.5rem] bg-indigo-600 text-white font-black shadow-[0_15px_35px_rgba(79,70,229,0.3)] hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest mt-2 flex items-center justify-center gap-2"
+          >
+            {isChecking ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : step === 'email' ? (
+              <>CONTINUER <ChevronRightIcon size={16} /></>
+            ) : step === 'password' ? (
+              <><Lock size={16} /> SE CONNECTER</>
+            ) : (
+              <><Check size={16} /> CRÉER MON COMPTE</>
+            )}
           </button>
-        </div>
+        </form>
 
         <div className="flex flex-col items-center gap-4 pt-2">
-          <button onClick={() => { setIsLogin(!isLogin); setError(''); }} className="text-indigo-600 font-black text-[10px] uppercase tracking-[0.2em] hover:opacity-70 transition-opacity">
-            {isLogin ? "PAS ENCORE DE COMPTE ? S'INSCRIRE" : "DÉJÀ UN COMPTE ? CONNEXION"}
-          </button>
+          <p className="text-slate-400 text-[9px] font-bold uppercase tracking-widest text-center leading-relaxed">
+            Vos données sont sauvegardées en temps réel et synchronisées avec votre email.
+          </p>
         </div>
       </div>
     </div>
@@ -851,12 +905,10 @@ const SleepDial: React.FC<{ sleep: SleepSchedule, setSleep: (s: SleepSchedule) =
       <svg viewBox="0 0 100 100" className="absolute inset-0">
         <circle cx="50" cy="50" r="45" fill="none" stroke={isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'} strokeWidth="10" />
         <path d={`M ${bedPos.x} ${bedPos.y} A 45 45 0 ${diff > 180 ? 1 : 0} 1 ${wakePos.x} ${wakePos.y}`} fill="none" stroke="#6366f1" strokeWidth="10" strokeLinecap="round" />
-        {/* ICÔNE COUCHER (Lune) */}
         <g transform={`translate(${bedPos.x - 4}, ${bedPos.y - 4})`} onMouseDown={() => setDragging('bed')} onTouchStart={() => setDragging('bed')} className="cursor-pointer">
            <circle cx="4" cy="4" r="7" fill="white" stroke="#6366f1" strokeWidth="2" />
            <Moon size={8} className="text-indigo-600 absolute translate-x-[2px] translate-y-[2px]" />
         </g>
-        {/* ICÔNE RÉVEIL */}
         <circle cx={wakePos.x} cy={wakePos.y} r="6" fill="white" stroke="#6366f1" strokeWidth="2" className="cursor-pointer shadow-lg" onMouseDown={() => setDragging('wake')} onTouchStart={() => setDragging('wake')} />
       </svg>
       <div className="flex flex-col items-center">
