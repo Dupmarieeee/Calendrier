@@ -30,10 +30,11 @@ import {
   Sparkles,
   Zap,
   Baby,
-  Copy,
-  RefreshCw,
-  CloudCheck,
-  ChevronRight as ChevronRightIcon
+  ChevronRight as ChevronRightIcon,
+  Lock,
+  Eye,
+  EyeOff,
+  Cloud
 } from 'lucide-react';
 import { Category, Task, TodoItem, SleepSchedule, GrowthType, GrowthState } from './types';
 import { INITIAL_CATEGORIES, TIME_SLOTS, DAYS_FR } from './constants';
@@ -44,19 +45,21 @@ import LandingPage from './LandingPage';
 const HOUR_HEIGHT = 120; 
 const MIN_TASK_HEIGHT = 28; 
 
+interface UserData {
+  tasks: Task[];
+  todos: TodoItem[];
+  categories: Category[];
+  sleep: SleepSchedule;
+  growth: GrowthState;
+}
+
 interface UserProfile {
   id: string;
   name: string;
   email: string;
-  password?: string; // Ajout du mot de passe
+  password?: string;
   timezone: string;
-  data?: {
-    tasks: Task[];
-    todos: TodoItem[];
-    categories: Category[];
-    sleep: SleepSchedule;
-    growth: GrowthState;
-  };
+  data: UserData;
 }
 
 const GROWTH_THRESHOLDS = [0, 50, 150, 400];
@@ -83,7 +86,7 @@ const formatTimeDisplay = (hours: number) => {
   return `${h}h ${m}min`;
 };
 
-// --- WIDGETS ---
+// --- COMPOSANTS WIDGETS ---
 
 const GrowthWidget: React.FC<{ growth: GrowthState, dailyPoints: number, isDarkMode: boolean, onSelect: () => void }> = ({ growth, dailyPoints, isDarkMode, onSelect }) => {
   const stage = GROWTH_THRESHOLDS.findIndex((t, i) => {
@@ -243,7 +246,7 @@ const TaskModal: React.FC<{
   );
 };
 
-// --- APP COMPONENT ---
+// --- COMPOSANT PRINCIPAL APP ---
 
 const App: React.FC = () => {
   const [appView, setAppView] = useState<'landing' | 'auth' | 'dashboard'>('landing');
@@ -275,6 +278,7 @@ const App: React.FC = () => {
     document.documentElement.classList.toggle('dark', isDarkMode);
   }, [isDarkMode]);
 
+  // Chargement initial du dernier utilisateur connecté
   useEffect(() => {
     const savedUserId = localStorage.getItem('focus_last_active_user');
     const usersJson = localStorage.getItem('focus_users_db');
@@ -282,36 +286,27 @@ const App: React.FC = () => {
       const users: UserProfile[] = JSON.parse(usersJson);
       const user = users.find(u => u.id === savedUserId);
       if (user) { 
-        setCurrentUser(user); 
-        // Restaurer les données depuis l'objet utilisateur s'il existe
-        if (user.data) {
-          setTasks(user.data.tasks || []);
-          setTodos(user.data.todos || []);
-          setCategories(user.data.categories || INITIAL_CATEGORIES);
-          setSleep(user.data.sleep || { enabled: true, bedtime: '23:30', wakeTime: '07:00' });
-          setGrowth(user.data.growth || { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 });
-        }
+        loadUserData(user);
         setAppView('dashboard'); 
       }
     }
     setIsAuthLoading(false);
   }, []);
 
-  const generateSyncToken = useCallback(() => {
-    if (!currentUser) return "";
-    const payload = { 
-      user: { ...currentUser, data: undefined }, // On enlève les data imbriquées pour ne pas doubler
-      tasks, 
-      todos, 
-      categories, 
-      sleep, 
-      growth, 
-      timestamp: Date.now() 
-    };
-    return btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-  }, [currentUser, tasks, todos, categories, sleep, growth]);
+  const loadUserData = (user: UserProfile) => {
+    setCurrentUser(user);
+    if (user.data) {
+      setTasks(user.data.tasks || []);
+      setTodos(user.data.todos || []);
+      setCategories(user.data.categories || INITIAL_CATEGORIES);
+      setSleep(user.data.sleep || { enabled: true, bedtime: '23:30', wakeTime: '07:00' });
+      setGrowth(user.data.growth || { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 });
+    }
+    setDataLoaded(true);
+  };
 
-  // Sauvegarde globale automatique dans la "Base de données" locale
+  // SAUVEGARDE AUTOMATIQUE SUR LE COMPTE
+  // Cet effet synchronise toutes les données locales dans l'entrée de l'utilisateur de la "Base de données" simulée.
   useEffect(() => {
     if (!currentUser || !dataLoaded) return;
     
@@ -322,6 +317,8 @@ const App: React.FC = () => {
       if (index !== -1) {
         users[index].data = { tasks, todos, categories, sleep, growth };
         localStorage.setItem('focus_users_db', JSON.stringify(users));
+        // Optionnel : On peut aussi sauvegarder le profil complet pour plus de sécurité
+        setCurrentUser(users[index]);
       }
     }
   }, [tasks, todos, categories, sleep, growth, currentUser, dataLoaded]);
@@ -414,73 +411,19 @@ const App: React.FC = () => {
     setDataLoaded(false);
   }, []);
 
-  const restoreFromToken = (token: string) => {
-    try {
-      const data = JSON.parse(decodeURIComponent(escape(atob(token))));
-      if (data.user && data.tasks) {
-        const usersJson = localStorage.getItem('focus_users_db');
-        let users: UserProfile[] = usersJson ? JSON.parse(usersJson) : [];
-        
-        // On fusionne ou remplace les données locales par celles du jeton
-        const existingUserIndex = users.findIndex(u => u.email.toLowerCase() === data.user.email.toLowerCase());
-        const importedUser = {
-          ...data.user,
-          data: {
-            tasks: data.tasks,
-            todos: data.todos,
-            categories: data.categories,
-            sleep: data.sleep,
-            growth: data.growth
-          }
-        };
-
-        if (existingUserIndex !== -1) {
-          users[existingUserIndex] = importedUser;
-        } else {
-          users.push(importedUser);
-        }
-
-        localStorage.setItem('focus_users_db', JSON.stringify(users));
-        localStorage.setItem('focus_last_active_user', importedUser.id);
-        
-        setCurrentUser(importedUser);
-        setTasks(data.tasks);
-        setTodos(data.todos);
-        setCategories(data.categories);
-        setSleep(data.sleep);
-        setGrowth(data.growth);
-        setDataLoaded(true);
-        setAppView('dashboard');
-        return true;
-      }
-    } catch (e) { 
-      console.error("Token restore error", e);
-      return false; 
-    }
-    return false;
-  };
-
   if (isAuthLoading) return <div className="flex items-center justify-center h-screen"><div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (appView === 'landing') return <LandingPage onStart={() => { setAuthMode('signup'); setAppView('auth'); }} onLogin={() => { setAuthMode('login'); setAppView('auth'); }} />;
   if (appView === 'auth' && !currentUser) return (
     <AuthScreen 
       initialIsLogin={authMode === 'login'}
       onAuthSuccess={user => { 
-        setCurrentUser(user); 
+        loadUserData(user);
         localStorage.setItem('focus_last_active_user', user.id); 
-        if (user.data) {
-          setTasks(user.data.tasks || []);
-          setTodos(user.data.todos || []);
-          setCategories(user.data.categories || INITIAL_CATEGORIES);
-          setSleep(user.data.sleep || { enabled: true, bedtime: '23:30', wakeTime: '07:00' });
-          setGrowth(user.data.growth || { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 });
-        }
-        setDataLoaded(true);
         setAppView('dashboard'); 
       }} 
-      onTokenRestore={restoreFromToken}
-      isDarkMode={isDarkMode} 
       onBack={() => setAppView('landing')} 
+      // Fix: Add isDarkMode prop to AuthScreen
+      isDarkMode={isDarkMode}
     />
   );
 
@@ -568,8 +511,8 @@ const App: React.FC = () => {
             <button onClick={() => setCurrentDate(viewMode === 'week' ? addWeeks(currentDate, 1) : addDays(currentDate, 1))} className="p-2 text-slate-400 hover:text-indigo-500"><ChevronRight /></button>
           </div>
           <div className="flex items-center gap-3">
-             <div className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 rounded-xl text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-500/20">
-               <CloudCheck size={16} /> <span className="text-[10px] font-black uppercase tracking-widest">CLOUD SYNC</span>
+             <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-2 rounded-xl text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-500/20">
+               <Cloud size={16} /> <span className="text-[10px] font-black uppercase tracking-widest">SYNCHRONISATION AUTOMATIQUE</span>
             </div>
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-3 bg-white dark:bg-white/10 rounded-2xl border border-gray-100 dark:border-white/10">{isDarkMode ? <Sun className="text-amber-400" /> : <Moon className="text-slate-600" />}</button>
             <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="p-3 bg-[#1e293b] dark:bg-indigo-600 text-white rounded-2xl shadow-lg hover:scale-105 transition-transform"><Plus /></button>
@@ -679,7 +622,7 @@ const App: React.FC = () => {
 
       {/* MODALS */}
       {isModalOpen && <TaskModal categories={categories} onClose={() => { setIsModalOpen(false); setEditingTask(null); }} onSubmit={data => { if (editingTask) setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, ...data } : t)); else setTasks([...tasks, { ...data, id: Math.random().toString(36).substr(2, 9), actualSeconds: 0, isCompleted: false }]); setIsModalOpen(false); }} onDelete={editingTask ? () => { setTasks(tasks.filter(t => t.id !== editingTask.id)); setIsModalOpen(false); } : undefined} taskToEdit={editingTask || undefined} isDarkMode={isDarkMode} onAddCategory={(name, color) => { const id = `cat-${Math.random().toString(36).substr(2, 9)}`; setCategories([...categories, { id, name, color, lightColor: `${color}20` }]); return id; }} onRemoveCategory={id => setCategories(categories.filter(c => c.id !== id))} selectedDate={currentDate} />}
-      {isSettingsModalOpen && <SettingsModal userName={currentUser?.name || ''} onClose={() => setIsSettingsModalOpen(false)} onLogout={handleLogout} onSave={(n) => { if (currentUser) setCurrentUser({ ...currentUser, name: n }); setIsSettingsModalOpen(false); }} generateSyncToken={generateSyncToken} />}
+      {isSettingsModalOpen && <SettingsModal userName={currentUser?.name || ''} onClose={() => setIsSettingsModalOpen(false)} onLogout={handleLogout} onSave={(n) => { if (currentUser) setCurrentUser({ ...currentUser, name: n }); setIsSettingsModalOpen(false); }} />}
       {isGrowthSelectOpen && <GrowthSelectionModal onSelect={type => { setGrowth(prev => ({ ...prev, type })); setIsGrowthSelectOpen(false); }} isDarkMode={isDarkMode} />}
     </div>
   );
@@ -691,24 +634,9 @@ const SettingsModal: React.FC<{
   userName: string, 
   onClose: () => void, 
   onLogout: () => void, 
-  onSave: (name: string) => void,
-  generateSyncToken: () => string
-}> = ({ userName, onClose, onLogout, onSave, generateSyncToken }) => {
+  onSave: (name: string) => void
+}> = ({ userName, onClose, onLogout, onSave }) => {
   const [name, setName] = useState(userName);
-  const [showToken, setShowToken] = useState(false);
-  const [token, setToken] = useState('');
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(token);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleGenerate = () => {
-    setToken(generateSyncToken());
-    setShowToken(true);
-  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
@@ -724,23 +652,14 @@ const SettingsModal: React.FC<{
             <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre nom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold text-slate-800 dark:text-white outline-none focus:ring-2 ring-indigo-500" />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">SYNCHRONISATION (JETON FOCUS)</label>
-            <div className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl border border-dashed border-slate-200 dark:border-white/10 flex flex-col gap-3">
-              <p className="text-[10px] text-slate-500 dark:text-white/40 font-medium">Utilisez ce jeton pour retrouver vos données sur un autre appareil.</p>
-              {!showToken ? (
-                <button onClick={handleGenerate} className="flex items-center justify-center gap-2 py-2 px-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-colors">
-                  <RefreshCw size={14} /> Générer un jeton
-                </button>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <textarea readOnly value={token} className="w-full bg-white dark:bg-black/40 p-3 rounded-xl text-[8px] font-mono break-all h-20 outline-none border border-slate-100 dark:border-white/10 dark:text-white" />
-                  <button onClick={handleCopy} className={`flex items-center justify-center gap-2 py-2 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${copied ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-white hover:bg-slate-700'}`}>
-                    {copied ? <><CloudCheck size={14} /> Copié !</> : <><Copy size={14} /> Copier le jeton</>}
-                  </button>
-                </div>
-              )}
-            </div>
+          <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-500/10">
+             <div className="flex items-center gap-2 mb-2">
+                <Cloud size={16} className="text-indigo-600" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">Synchronisation active</span>
+             </div>
+             <p className="text-[10px] font-medium text-indigo-600/80 dark:text-indigo-300/60 leading-relaxed">
+               Toutes vos modifications sont automatiquement sauvegardées sur votre compte. Connectez-vous sur n'importe quel appareil avec votre email et mot de passe pour les retrouver.
+             </p>
           </div>
         </div>
 
@@ -757,20 +676,20 @@ const SettingsModal: React.FC<{
   );
 };
 
+// --- AUTH SCREEN ---
+
 const AuthScreen: React.FC<{ 
   initialIsLogin?: boolean, 
   onAuthSuccess: (u: UserProfile) => void, 
-  onTokenRestore: (t: string) => boolean, 
   isDarkMode: boolean, 
   onBack: () => void 
-}> = ({ initialIsLogin = false, onAuthSuccess, onTokenRestore, onBack }) => {
+}> = ({ initialIsLogin = false, onAuthSuccess, isDarkMode, onBack }) => {
   const [isLogin, setIsLogin] = useState(initialIsLogin);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
-  const [syncToken, setSyncToken] = useState('');
-  const [showSyncRestore, setShowSyncRestore] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleAuth = () => {
     setError('');
@@ -787,12 +706,12 @@ const AuthScreen: React.FC<{
           setError("Mot de passe incorrect.");
         }
       }
-      else setError("Compte non trouvé. Utilisez un Jeton Focus pour importer vos données d'un autre appareil.");
+      else setError("Aucun compte trouvé avec cet email. Veuillez vous inscrire pour créer votre espace.");
     } else {
       if (!name || !email || !password) { setError("Tous les champs sont requis."); return; }
       const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
       if (existingUser) {
-        setError("Cet email est déjà utilisé. Veuillez vous connecter.");
+        setError("Cet email est déjà associé à un compte. Veuillez vous connecter.");
       }
       else {
         const newUser: UserProfile = { 
@@ -800,19 +719,20 @@ const AuthScreen: React.FC<{
           name, 
           email, 
           password, 
-          timezone: 'Europe/Paris' 
+          timezone: 'Europe/Paris',
+          data: {
+            tasks: [],
+            todos: [],
+            categories: INITIAL_CATEGORIES,
+            sleep: { enabled: true, bedtime: '23:30', wakeTime: '07:00' },
+            growth: { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 }
+          }
         };
         users.push(newUser);
         localStorage.setItem('focus_users_db', JSON.stringify(users));
         onAuthSuccess(newUser);
       }
     }
-  };
-
-  const handleTokenRestore = () => {
-    if (!syncToken) return;
-    const success = onTokenRestore(syncToken);
-    if (!success) setError("Jeton invalide. Vérifiez que vous l'avez bien copié entièrement.");
   };
 
   return (
@@ -822,72 +742,50 @@ const AuthScreen: React.FC<{
         
         <div className="text-center space-y-2 pt-6">
           <h2 className="text-3xl font-black text-slate-800 dark:text-white uppercase tracking-tight">{isLogin ? 'CONNEXION' : 'CRÉER UN COMPTE'}</h2>
-          <p className="text-slate-400 text-sm font-medium">{isLogin ? 'Entrez vos identifiants pour accéder à votre espace.' : "Rejoignez l'aventure dès maintenant."}</p>
+          <p className="text-slate-400 text-sm font-medium">{isLogin ? 'Entrez vos identifiants pour retrouver vos rendez-vous.' : "Créez votre compte pour commencer à planifier."}</p>
         </div>
 
         <div className="flex flex-col gap-5">
           {error && <div className="text-red-500 text-[10px] font-black uppercase text-center bg-red-50 dark:bg-red-900/20 p-4 rounded-2xl border border-red-100 dark:border-red-500/20">{error}</div>}
           
-          {!showSyncRestore ? (
-            <>
-              {!isLogin && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">PRÉNOM</label>
-                  <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre prénom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
-                </div>
-              )}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">EMAIL</label>
-                <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="votre@email.com" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">MOT DE PASSE</label>
-                <input value={password} onChange={e => setPassword(e.target.value)} type="password" placeholder="••••••••" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" onKeyDown={(e) => e.key === 'Enter' && handleAuth()} />
-              </div>
-
-              {!isLogin && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">FUSEAU HORAIRE</label>
-                  <div className="relative">
-                    <select className="w-full bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none appearance-none cursor-pointer border border-transparent focus:border-indigo-500 shadow-sm">
-                      <option value="Europe/Paris">Europe/Paris (UTC+1)</option>
-                    </select>
-                    <ChevronRightIcon size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 rotate-90" />
-                  </div>
-                </div>
-              )}
-
-              <button onClick={handleAuth} className="w-full py-5 rounded-[1.5rem] bg-indigo-600 text-white font-black shadow-[0_15px_35px_rgba(79,70,229,0.3)] hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest mt-2">
-                {isLogin ? 'SE CONNECTER' : "C'EST PARTI !"}
-              </button>
-            </>
-          ) : (
-            <div className="flex flex-col gap-4 animate-in slide-in-from-bottom duration-300">
-               <div className="flex flex-col gap-1.5">
-                 <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">JETON FOCUS (TRANSFERT)</label>
-                 <textarea value={syncToken} onChange={e => setSyncToken(e.target.value)} placeholder="Collez votre jeton de transfert ici..." className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none h-32 text-[10px] leading-relaxed resize-none border border-transparent focus:border-emerald-500 shadow-sm" />
-               </div>
-               <p className="text-[9px] text-slate-400 px-4 text-center italic">Cette opération importera votre compte et tous vos rendez-vous sur cet ordinateur.</p>
-               <button onClick={handleTokenRestore} className="w-full py-5 rounded-[1.5rem] bg-emerald-600 text-white font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest">
-                IMPORTER MES DONNÉES
-               </button>
+          {!isLogin && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">PRÉNOM</label>
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre prénom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
             </div>
           )}
+          
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">EMAIL</label>
+            <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="votre@email.com" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">MOT DE PASSE</label>
+            <div className="relative">
+              <input value={password} onChange={e => setPassword(e.target.value)} type={showPassword ? "text" : "password"} placeholder="••••••••" className="w-full bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" onKeyDown={(e) => e.key === 'Enter' && handleAuth()} />
+              <button onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 transition-colors">
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </div>
+
+          <button onClick={handleAuth} className="w-full py-5 rounded-[1.5rem] bg-indigo-600 text-white font-black shadow-[0_15px_35px_rgba(79,70,229,0.3)] hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest mt-2 flex items-center justify-center gap-2">
+            {isLogin ? <><Lock size={16} /> SE CONNECTER</> : <><Plus size={16} /> C'EST PARTI !</>}
+          </button>
         </div>
 
         <div className="flex flex-col items-center gap-4 pt-2">
-          <button onClick={() => { setIsLogin(!isLogin); setError(''); setShowSyncRestore(false); }} className="text-indigo-600 font-black text-[10px] uppercase tracking-[0.2em] hover:opacity-70 transition-opacity">
+          <button onClick={() => { setIsLogin(!isLogin); setError(''); }} className="text-indigo-600 font-black text-[10px] uppercase tracking-[0.2em] hover:opacity-70 transition-opacity">
             {isLogin ? "PAS ENCORE DE COMPTE ? S'INSCRIRE" : "DÉJÀ UN COMPTE ? CONNEXION"}
-          </button>
-          <button onClick={() => { setShowSyncRestore(!showSyncRestore); setError(''); }} className="text-slate-400 font-black text-[9px] uppercase tracking-[0.2em] underline underline-offset-4 hover:text-indigo-600 transition-colors">
-            {showSyncRestore ? "RETOUR À LA CONNEXION" : "RESTAURER DEPUIS UN AUTRE APPAREIL"}
           </button>
         </div>
       </div>
     </div>
   );
 };
+
+// --- CADRAN DE SOMMEIL ---
 
 const SleepDial: React.FC<{ sleep: SleepSchedule, setSleep: (s: SleepSchedule) => void, isDarkMode: boolean }> = ({ sleep, setSleep, isDarkMode }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -953,12 +851,12 @@ const SleepDial: React.FC<{ sleep: SleepSchedule, setSleep: (s: SleepSchedule) =
       <svg viewBox="0 0 100 100" className="absolute inset-0">
         <circle cx="50" cy="50" r="45" fill="none" stroke={isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'} strokeWidth="10" />
         <path d={`M ${bedPos.x} ${bedPos.y} A 45 45 0 ${diff > 180 ? 1 : 0} 1 ${wakePos.x} ${wakePos.y}`} fill="none" stroke="#6366f1" strokeWidth="10" strokeLinecap="round" />
-        {/* BEDTIME ICON (Moon) */}
+        {/* ICÔNE COUCHER (Lune) */}
         <g transform={`translate(${bedPos.x - 4}, ${bedPos.y - 4})`} onMouseDown={() => setDragging('bed')} onTouchStart={() => setDragging('bed')} className="cursor-pointer">
            <circle cx="4" cy="4" r="7" fill="white" stroke="#6366f1" strokeWidth="2" />
            <Moon size={8} className="text-indigo-600 absolute translate-x-[2px] translate-y-[2px]" />
         </g>
-        {/* WAKEUP ICON */}
+        {/* ICÔNE RÉVEIL */}
         <circle cx={wakePos.x} cy={wakePos.y} r="6" fill="white" stroke="#6366f1" strokeWidth="2" className="cursor-pointer shadow-lg" onMouseDown={() => setDragging('wake')} onTouchStart={() => setDragging('wake')} />
       </svg>
       <div className="flex flex-col items-center">
