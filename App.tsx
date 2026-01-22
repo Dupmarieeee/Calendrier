@@ -48,7 +48,7 @@ import LandingPage from './LandingPage';
 const HOUR_HEIGHT = 120; 
 const MIN_TASK_HEIGHT = 28; 
 
-// Service de synchronisation Cloud (Simulation persistante)
+// Service de synchronisation (Utilisation d'un endpoint persistant basé sur le nom de l'objet)
 const CLOUD_ENDPOINT = "https://api.restful-api.dev/objects";
 
 interface UserData {
@@ -60,7 +60,7 @@ interface UserData {
 }
 
 interface UserProfile {
-  id: string; // Cloud ID
+  id: string; // ID Cloud permanent
   name: string;
   email: string;
   password?: string;
@@ -70,12 +70,12 @@ interface UserProfile {
 
 const GROWTH_THRESHOLDS = [0, 50, 150, 400];
 
-// Utilitaire de hashage pour identifier le compte sur le réseau sans exposer l'email en clair
-const getEmailHash = async (email: string) => {
+// Utilitaire pour transformer l'email en une clé unique pour le Cloud (SHA-256)
+const getEmailKey = async (email: string) => {
   const msgBuffer = new TextEncoder().encode(email.toLowerCase().trim());
   const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 20);
 };
 
 const customStartOfDay = (date: Date | number | string) => {
@@ -293,7 +293,7 @@ const App: React.FC = () => {
     document.documentElement.classList.toggle('dark', isDarkMode);
   }, [isDarkMode]);
 
-  // Chargement initial
+  // Chargement automatique si une session est active sur cet ordi
   useEffect(() => {
     const savedUserId = localStorage.getItem('focus_last_active_user');
     const usersJson = localStorage.getItem('focus_users_db');
@@ -320,48 +320,39 @@ const App: React.FC = () => {
     setDataLoaded(true);
   };
 
-  // SYNCHRONISATION CLOUD AUTOMATIQUE (DÈS QUE QUELQUE CHOSE CHANGE)
-  const syncWithCloud = useCallback(async (updatedUser: UserProfile) => {
-    if (!updatedUser.id || updatedUser.id.startsWith('temp_')) return;
-    
+  // --- LOGIQUE DE SAUVEGARDE CLOUD ---
+  const pushToCloud = useCallback(async (user: UserProfile) => {
+    if (!user.id || user.id.length < 5) return;
     setIsSyncing(true);
     try {
-      // On met à jour l'objet distant sur l'API publique
-      await fetch(`${CLOUD_ENDPOINT}/${updatedUser.id}`, {
+      await fetch(`${CLOUD_ENDPOINT}/${user.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: updatedUser.name,
-          data: updatedUser // L'API attend une structure 'data'
-        })
+        body: JSON.stringify({ name: user.email, data: user })
       });
     } catch (e) {
-      console.warn("Cloud Sync Error (Retrying in background):", e);
+      console.warn("Sync cloud fail", e);
     } finally {
       setIsSyncing(false);
     }
   }, []);
 
-  // Déclencheur de sauvegarde locale + Cloud debounced
   useEffect(() => {
     if (!currentUser || !dataLoaded) return;
     
-    const usersJson = localStorage.getItem('focus_users_db');
-    let users: UserProfile[] = usersJson ? JSON.parse(usersJson) : [];
-    const index = users.findIndex(u => u.id === currentUser.id);
-    
-    if (index !== -1) {
-      const updatedUser = { ...users[index], data: { tasks, todos, categories, sleep, growth } };
-      users[index] = updatedUser;
-      localStorage.setItem('focus_users_db', JSON.stringify(users));
+    // Sauvegarde locale cache
+    const localUsers = JSON.parse(localStorage.getItem('focus_users_db') || '[]');
+    const updatedUser = { ...currentUser, data: { tasks, todos, categories, sleep, growth } };
+    const idx = localUsers.findIndex((u: any) => u.email === currentUser.email);
+    if (idx === -1) localUsers.push(updatedUser); else localUsers[idx] = updatedUser;
+    localStorage.setItem('focus_users_db', JSON.stringify(localUsers));
 
-      // Sync Cloud debounced (pour ne pas saturer l'API à chaque seconde du timer)
-      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-      syncTimeoutRef.current = setTimeout(() => {
-        syncWithCloud(updatedUser);
-      }, 5000); 
-    }
-  }, [tasks, todos, categories, sleep, growth, currentUser, dataLoaded, syncWithCloud]);
+    // Sauvegarde Cloud déboucée
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    syncTimeoutRef.current = setTimeout(() => {
+      pushToCloud(updatedUser);
+    }, 3000);
+  }, [tasks, todos, categories, sleep, growth, currentUser, dataLoaded, pushToCloud]);
 
   const dailyPoints = useMemo(() => {
     let pts = 0;
@@ -692,7 +683,7 @@ const SettingsModal: React.FC<{
             <div className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl flex flex-col gap-3">
               <div className="flex flex-col gap-1">
                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nom</label>
-                <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre nom" className="bg-white dark:bg-white/5 p-3 rounded-xl font-bold text-slate-800 dark:text-white outline-none border border-slate-100 dark:border-white/10" />
+                <input value={name} onChange={setName ? (e) => setName(e.target.value) : undefined} placeholder="Votre nom" className="bg-white dark:bg-white/5 p-3 rounded-xl font-bold text-slate-800 dark:text-white outline-none border border-slate-100 dark:border-white/10" />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Email (Synchronisation)</label>
@@ -740,45 +731,32 @@ const AuthScreen: React.FC<{
   const [showPassword, setShowPassword] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
 
-  // LOGIQUE DE DÉTECTION MULTI-APPAREILS
+  // LOGIQUE CRUCIALE : RECONNAISSANCE GLOBALE PAR EMAIL
   const handleCheckEmail = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setError('');
-    if (!email || !email.includes('@')) { setError("Veuillez entrer un email valide."); return; }
+    const cleanEmail = email.toLowerCase().trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) { setError("Veuillez entrer un email valide."); return; }
     
     setIsChecking(true);
     try {
-      // 1. On cherche d'abord dans le localStorage (si on est sur le même ordi)
-      const usersJson = localStorage.getItem('focus_users_db');
-      let users: UserProfile[] = usersJson ? JSON.parse(usersJson) : [];
-      let user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-
-      // 2. Si pas trouvé localement, on cherche sur le Cloud Simulation
-      if (!user) {
-        const hash = await getEmailHash(email);
-        const response = await fetch(CLOUD_ENDPOINT);
-        const cloudObjects = await response.json();
-        // L'API restful-api.dev renvoie une liste. On cherche un objet dont le nom est notre hash.
-        const cloudUserObj = cloudObjects.find((o: any) => o.name === hash);
-        
-        if (cloudUserObj) {
-          // On récupère les données complètes
-          const detailRes = await fetch(`${CLOUD_ENDPOINT}/${cloudUserObj.id}`);
-          const detailData = await detailRes.json();
-          user = detailData.data; // Notre UserProfile est stocké dans 'data'
-        }
-      }
+      const emailKey = await getEmailKey(cleanEmail);
       
-      if (user) {
+      // On tente de récupérer l'objet Cloud par son ID dérivé du mail
+      const response = await fetch(`${CLOUD_ENDPOINT}/${emailKey}`);
+      
+      if (response.ok) {
+        // Le compte existe GLOBALEMENT -> passage direct au mot de passe
         setStep('password');
       } else {
+        // Le compte n'existe pas encore -> inscription
         setStep('signup');
       }
     } catch (err) {
-      console.warn("Cloud check failed, falling back to local storage:", err);
-      // Fallback local uniquement si le cloud est injoignable
-      const usersJson = localStorage.getItem('focus_users_db');
-      const user = JSON.parse(usersJson || '[]').find((u: any) => u.email.toLowerCase() === email.toLowerCase());
+      console.warn("Check error", err);
+      // Fallback local si le réseau fail
+      const localUsers = JSON.parse(localStorage.getItem('focus_users_db') || '[]');
+      const user = localUsers.find((u: any) => u.email.toLowerCase() === cleanEmail);
       setStep(user ? 'password' : 'signup');
     } finally {
       setIsChecking(false);
@@ -788,44 +766,41 @@ const AuthScreen: React.FC<{
   const handleAuth = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setError('');
+    const cleanEmail = email.toLowerCase().trim();
     
-    // Pour la connexion ou l'inscription, on a besoin de vérifier les données
     try {
       setIsChecking(true);
-      const hash = await getEmailHash(email);
-      const response = await fetch(CLOUD_ENDPOINT);
-      const cloudObjects = await response.json();
-      const cloudUserObj = cloudObjects.find((o: any) => o.name === hash);
-      
-      let existingUser: UserProfile | null = null;
-      if (cloudUserObj) {
-        const detailRes = await fetch(`${CLOUD_ENDPOINT}/${cloudUserObj.id}`);
-        const detailData = await detailRes.json();
-        existingUser = detailData.data;
-      }
+      const emailKey = await getEmailKey(cleanEmail);
 
       if (step === 'password') {
         // CONNEXION
-        if (existingUser && existingUser.password === password) {
-          // On met à jour le cache local pour plus de rapidité la prochaine fois
-          const localUsers = JSON.parse(localStorage.getItem('focus_users_db') || '[]');
-          const idx = localUsers.findIndex((u: any) => u.email === email);
-          if (idx === -1) localUsers.push(existingUser); else localUsers[idx] = existingUser;
-          localStorage.setItem('focus_users_db', JSON.stringify(localUsers));
+        const response = await fetch(`${CLOUD_ENDPOINT}/${emailKey}`);
+        if (response.ok) {
+          const cloudObj = await response.json();
+          const user: UserProfile = cloudObj.data;
           
-          onAuthSuccess(existingUser);
+          if (user.password === password) {
+            // Mise en cache locale
+            const localUsers = JSON.parse(localStorage.getItem('focus_users_db') || '[]');
+            const idx = localUsers.findIndex((u: any) => u.email === cleanEmail);
+            if (idx === -1) localUsers.push(user); else localUsers[idx] = user;
+            localStorage.setItem('focus_users_db', JSON.stringify(localUsers));
+            
+            onAuthSuccess(user);
+          } else {
+            setError("Mot de passe incorrect.");
+          }
         } else {
-          setError("Mot de passe incorrect.");
+          setError("Erreur de récupération du compte.");
         }
       } else {
-        // INSCRIPTION (Nouveau compte)
+        // INSCRIPTION
         if (!name || !password) { setError("Veuillez remplir tous les champs."); setIsChecking(false); return; }
         
-        // Création de l'objet utilisateur
         const newUser: UserProfile = { 
-          id: 'temp', // Sera remplacé par l'ID de l'API
+          id: emailKey, 
           name, 
-          email, 
+          email: cleanEmail, 
           password, 
           timezone: 'Europe/Paris',
           data: {
@@ -837,19 +812,15 @@ const AuthScreen: React.FC<{
           }
         };
 
-        // Sauvegarde sur le Cloud Simulation
-        const cloudRes = await fetch(CLOUD_ENDPOINT, {
-          method: 'POST',
+        // Envoi au Cloud (Création)
+        // restful-api.dev : PUT sur un ID inexistant le crée
+        await fetch(`${CLOUD_ENDPOINT}/${emailKey}`, {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: hash,
-            data: newUser
-          })
+          body: JSON.stringify({ name: cleanEmail, data: newUser })
         });
-        const cloudData = await cloudRes.json();
-        newUser.id = cloudData.id; // On récupère l'ID permanent
 
-        // Sauvegarde locale
+        // Cache local
         const localUsers = JSON.parse(localStorage.getItem('focus_users_db') || '[]');
         localUsers.push(newUser);
         localStorage.setItem('focus_users_db', JSON.stringify(localUsers));
@@ -857,7 +828,7 @@ const AuthScreen: React.FC<{
         onAuthSuccess(newUser);
       }
     } catch (err) {
-      setError("Erreur de synchronisation. Vérifiez votre connexion.");
+      setError("Erreur réseau. Réessayez.");
     } finally {
       setIsChecking(false);
     }
@@ -870,10 +841,10 @@ const AuthScreen: React.FC<{
         
         <div className="text-center space-y-2 pt-6">
           <h2 className="text-3xl font-black text-slate-800 dark:text-white uppercase tracking-tight">
-            {step === 'email' ? 'Bienvenue' : step === 'password' ? 'Ravi de vous revoir' : 'Créer un compte'}
+            {step === 'email' ? 'Bienvenue' : step === 'password' ? 'Déverrouiller' : 'Votre Profil'}
           </h2>
           <p className="text-slate-400 text-sm font-medium">
-            {step === 'email' ? 'Utilisez le même email partout pour synchroniser vos données.' : step === 'password' ? 'Confirmez votre mot de passe pour accéder au Cloud.' : "Définissez votre profil."}
+            {step === 'email' ? 'Connectez-vous pour retrouver vos données partout.' : step === 'password' ? 'Entrez votre mot de passe Cloud.' : "Finalisez votre inscription."}
           </p>
         </div>
 
@@ -885,17 +856,17 @@ const AuthScreen: React.FC<{
           )}
           
           <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">EMAIL SYNCHRONISÉ</label>
+            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">EMAIL</label>
             <div className="relative">
               <input 
                 value={email} 
                 onChange={e => setEmail(e.target.value)} 
                 type="email" 
-                disabled={step !== 'email'}
+                disabled={step !== 'email' || isChecking}
                 placeholder="votre@email.com" 
                 className={`w-full p-4 rounded-[1.5rem] font-bold outline-none border border-transparent transition-all shadow-sm ${step === 'email' ? 'bg-slate-50 dark:bg-white/5 text-slate-900 dark:text-white focus:border-indigo-500' : 'bg-slate-100 dark:bg-white/10 text-slate-400'}`} 
               />
-              {step !== 'email' && <button type="button" onClick={() => setStep('email')} className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-indigo-500 uppercase">Changer</button>}
+              {step !== 'email' && !isChecking && <button type="button" onClick={() => setStep('email')} className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-indigo-500 uppercase">Modifier</button>}
             </div>
           </div>
 
@@ -909,7 +880,7 @@ const AuthScreen: React.FC<{
           {step !== 'email' && (
             <div className="flex flex-col gap-1.5 animate-in slide-in-from-top duration-300">
               <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">
-                {step === 'password' ? 'MOT DE PASSE' : 'CRÉER UN MOT DE PASSE'}
+                MOT DE PASSE
               </label>
               <div className="relative">
                 <input value={password} onChange={e => setPassword(e.target.value)} type={showPassword ? "text" : "password"} placeholder="••••••••" className="w-full bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
@@ -923,16 +894,16 @@ const AuthScreen: React.FC<{
           <button 
             type="submit" 
             disabled={isChecking}
-            className="w-full py-5 rounded-[1.5rem] bg-indigo-600 text-white font-black shadow-[0_15px_35px_rgba(79,70,229,0.3)] hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest mt-2 flex items-center justify-center gap-2"
+            className="w-full py-5 rounded-[1.5rem] bg-indigo-600 text-white font-black shadow-[0_15px_35px_rgba(79,70,229,0.3)] hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest mt-2 flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {isChecking ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : step === 'email' ? (
-              <>CHERCHER MON COMPTE <ChevronRightIcon size={16} /></>
+              <>CONTINUER <ChevronRightIcon size={16} /></>
             ) : step === 'password' ? (
-              <><Lock size={16} /> RÉCUPÉRER MES DONNÉES</>
+              <><Lock size={16} /> SE CONNECTER</>
             ) : (
-              <><Check size={16} /> CRÉER ET SYNCHRONISER</>
+              <><Check size={16} /> CRÉER MON COMPTE</>
             )}
           </button>
         </form>
@@ -941,7 +912,7 @@ const AuthScreen: React.FC<{
           <div className="flex items-center gap-2 opacity-60">
              <Cloud size={14} className="text-indigo-500" />
              <p className="text-slate-400 text-[9px] font-bold uppercase tracking-widest text-center">
-               Synchronisation automatique multi-appareils activée.
+               Synchronisation Cloud instantanée activée.
              </p>
           </div>
         </div>
