@@ -534,6 +534,7 @@ const App: React.FC = () => {
   const [growth, setGrowth] = useState<GrowthState>({ type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 });
   const [isGrowthSelectOpen, setIsGrowthSelectOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedStatsDate, setSelectedStatsDate] = useState(new Date()); // NOUVEAU: Date sélectionnée pour les stats
   const [now, setNow] = useState(new Date());
   const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
@@ -578,6 +579,26 @@ const App: React.FC = () => {
     clockRef.current = setInterval(() => setNow(new Date()), 60000);
     return () => { if (clockRef.current) clearInterval(clockRef.current); };
   }, []);
+
+  // Sync selectedStatsDate when currentDate (view) changes
+  useEffect(() => {
+    if (viewMode === 'week') {
+       const start = startOfWeek(currentDate, { weekStartsOn: 1 });
+       const end = endOfWeek(currentDate, { weekStartsOn: 1 });
+       // If selected date is not in visible week, update it
+       if (selectedStatsDate < start || selectedStatsDate > end) {
+           // Check if today is in this week
+           if (isSameDay(new Date(), currentDate) || (new Date() >= start && new Date() <= end)) {
+               setSelectedStatsDate(new Date());
+           } else {
+               setSelectedStatsDate(start);
+           }
+       }
+    } else {
+       // Day view: always select current date
+       setSelectedStatsDate(currentDate);
+    }
+  }, [currentDate, viewMode]);
 
   // Load Data by Email
   useEffect(() => {
@@ -699,16 +720,17 @@ const App: React.FC = () => {
     return { ...cat, actualHours: filteredTasks.reduce((acc, t) => acc + (t.actualSeconds / 3600), 0), plannedHours: filteredTasks.reduce((acc, t) => acc + t.durationHours, 0) };
   });
 
-  const totalWeeklyActual = weeklySummary.reduce((acc, s) => acc + s.actualHours, 0);
-  const totalWeeklyPlanned = weeklySummary.reduce((acc, s) => acc + s.plannedHours, 0);
   const maxWeeklyHours = Math.max(...weeklySummary.map(s => Math.max(s.actualHours, s.plannedHours)), 1);
-  const todaySummary = categories.map(cat => {
-    const filtered = tasks.filter(t => t.date === todayStr && t.categoryId === cat.id);
+  
+  // Correction: Calculer les stats pour la journée SÉLECTIONNÉE (et non plus juste "aujourd'hui")
+  const statsDateStr = formatDate(selectedStatsDate);
+  const currentStatsSummary = categories.map(cat => {
+    const filtered = tasks.filter(t => t.date === statsDateStr && t.categoryId === cat.id);
     return { ...cat, planned: filtered.reduce((acc, t) => acc + t.durationHours, 0), actual: filtered.reduce((acc, t) => acc + (t.actualSeconds / 3600), 0) };
   });
 
-  const totalTodayActual = todaySummary.reduce((acc, s) => acc + s.actual, 0);
-  const totalTodayPlanned = todaySummary.reduce((acc, s) => acc + s.planned, 0);
+  const totalTodayActual = currentStatsSummary.reduce((acc, s) => acc + s.actual, 0);
+  const totalTodayPlanned = currentStatsSummary.reduce((acc, s) => acc + s.planned, 0);
 
   const getLayoutedTasks = useCallback((dayTasks: Task[]) => {
     if (dayTasks.length === 0) return [];
@@ -852,7 +874,7 @@ const App: React.FC = () => {
               {/* Ligne TOTAL JOURNÉE ajoutée */}
               <div className="pt-4 mt-2 border-t border-dashed border-gray-200 dark:border-white/10 flex flex-col gap-1.5">
                   <div className="flex justify-between text-[10px] font-black uppercase">
-                    <span className="text-slate-800 dark:text-white">TOTAL JOURNÉE</span>
+                    <span className="text-slate-800 dark:text-white">TOTAL {isSameDay(selectedStatsDate, new Date()) ? "JOURNÉE" : format(selectedStatsDate, 'dd/MM')}</span>
                     <span className="text-slate-400">{formatTimeDisplay(totalTodayActual)} / {formatTimeDisplay(totalTodayPlanned)}</span>
                   </div>
                   <div className="h-2 w-full bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden relative">
@@ -883,33 +905,50 @@ const App: React.FC = () => {
         <div className="flex-1 bg-white dark:bg-[#0a0a0a] rounded-[2.5rem] shadow-sm border border-gray-200 dark:border-white/10 flex flex-col overflow-hidden">
            <div className="flex border-b border-gray-200 dark:border-white/10 bg-slate-50/50 dark:bg-white/5">
               <div className="w-20" />
-              {displayDates.map((d, i) => (
-                <div key={i} className="flex-1 py-4 text-center flex flex-col gap-1">
-                  <span className={`text-[10px] font-black uppercase ${isSameDay(d, new Date()) ? 'text-indigo-600' : 'text-slate-400'}`}>{DAYS_FR[d.getDay() === 0 ? 6 : d.getDay() - 1]}</span>
-                  <span className={`text-sm font-black ${isSameDay(d, new Date()) ? 'text-white bg-indigo-600 w-8 h-8 flex items-center justify-center rounded-full mx-auto' : 'text-slate-300 dark:text-white/20'}`}>{format(d, 'd')}</span>
-                </div>
-              ))}
+              {displayDates.map((d, i) => {
+                const isSelected = isSameDay(d, selectedStatsDate);
+                const isToday = isSameDay(d, new Date());
+                return (
+                  <div 
+                    key={i} 
+                    onClick={() => setSelectedStatsDate(d)}
+                    className={`flex-1 py-4 text-center flex flex-col gap-1 cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-white/10 ${isSelected ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}`}
+                  >
+                    <span className={`text-[10px] font-black uppercase ${isToday ? 'text-indigo-600' : 'text-slate-400'}`}>{DAYS_FR[d.getDay() === 0 ? 6 : d.getDay() - 1]}</span>
+                    <span className={`text-sm font-black ${isToday ? 'text-white bg-indigo-600 w-8 h-8 flex items-center justify-center rounded-full mx-auto' : 'text-slate-300 dark:text-white/20'}`}>{format(d, 'd')}</span>
+                  </div>
+                );
+              })}
            </div>
            <div className="flex-1 overflow-y-auto relative flex custom-scrollbar">
               <div className="w-20 bg-slate-50/30 dark:bg-white/5 border-r border-indigo-200 dark:border-white/10 shrink-0">
                 {TIME_SLOTS.map(t => <div key={t} style={{ height: HOUR_HEIGHT }} className="border-b border-dashed border-indigo-200 dark:border-white/10 flex justify-center pt-2 text-[10px] font-bold text-slate-300 uppercase">{t}</div>)}
               </div>
-              <div className="flex-1 flex relative">
+              
+              {/* Le conteneur principal a maintenant une hauteur minimale de 24 * HOUR_HEIGHT pour que les lignes verticales aillent jusqu'en bas */}
+              <div className="flex-1 flex relative" style={{ minHeight: 24 * HOUR_HEIGHT }}>
                 {displayDates.map((date, idx) => {
                   const dayStr = formatDate(date);
                   const layout = getLayoutedTasks(tasks.filter(t => t.date === dayStr));
+                  const isSelected = isSameDay(date, selectedStatsDate);
+                  
                   return (
-                    <div key={idx} onDragOver={e => e.preventDefault()} onDrop={e => {
-                      if (!draggedTaskId) return;
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      const mins = ((e.clientY - rect.top) / HOUR_HEIGHT) * 60;
-                      const h = Math.min(23, Math.max(0, Math.floor(mins / 60)));
-                      const m = Math.floor((mins % 60) / 5) * 5;
-                      setTasks(tasks.map(t => t.id === draggedTaskId ? { ...t, date: dayStr, startTime: `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}` } : t));
-                      setDraggedTaskId(null);
-                    }} className="flex-1 border-r border-indigo-200 dark:border-white/10 relative last:border-r-0">
+                    <div key={idx} 
+                         onClick={() => setSelectedStatsDate(date)}
+                         onDragOver={e => e.preventDefault()} 
+                         onDrop={e => {
+                          if (!draggedTaskId) return;
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const mins = ((e.clientY - rect.top) / HOUR_HEIGHT) * 60;
+                          const h = Math.min(23, Math.max(0, Math.floor(mins / 60)));
+                          const m = Math.floor((mins % 60) / 5) * 5;
+                          setTasks(tasks.map(t => t.id === draggedTaskId ? { ...t, date: dayStr, startTime: `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}` } : t));
+                          setDraggedTaskId(null);
+                          setSelectedStatsDate(parse(dayStr, 'yyyy-MM-dd', new Date()));
+                        }} 
+                        className={`flex-1 border-r border-dashed border-indigo-200 dark:border-white/10 relative last:border-r-0 ${isSelected ? 'bg-indigo-50/20 dark:bg-indigo-900/5' : ''}`}>
                       
-                      {/* LIGNES HORIZONTALES SIMPLES EN POINTILLÉS (CORRECTION) */}
+                      {/* LIGNES HORIZONTALES SIMPLES EN POINTILLÉS */}
                       {Array.from({ length: 24 }).map((_, i) => (
                         <div 
                            key={`line-${i}`} 
@@ -937,9 +976,20 @@ const App: React.FC = () => {
                 })}
               </div>
            </div>
+           
+           {/* Bottom Summary Section - Maintenant lié à selectedStatsDate */}
            <div className="p-6 border-t border-gray-200 dark:border-white/10">
+              <div className="flex items-center justify-between mb-2">
+                 <h3 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-wide flex items-center gap-3">
+                    <span>TOTAL POUR {isSameDay(selectedStatsDate, new Date()) ? "AUJOURD'HUI" : format(selectedStatsDate, 'EEEE d MMMM', { locale: fr })}</span>
+                    <span className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-0.5 rounded-lg text-xs">
+                       {formatTimeDisplay(totalTodayPlanned)} <span className="opacity-60 font-medium">PRÉVU</span>
+                    </span>
+                 </h3>
+                 <span className="text-xs font-bold text-slate-400">Cliquez sur un jour pour voir le détail</span>
+              </div>
               <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
-                 {todaySummary.map(item => (
+                 {currentStatsSummary.map(item => (
                    <div key={item.id} className="min-w-[240px] p-5 rounded-3xl border flex items-center justify-between" style={{ backgroundColor: isDarkMode ? `${item.color}30` : item.lightColor, borderColor: `${item.color}40` }}>
                       <div className="flex flex-col"><span className="text-[10px] font-black uppercase" style={{ color: isDarkMode ? 'white' : item.color }}>{item.name}</span><span className="text-[10px] font-bold opacity-60" style={{ color: isDarkMode ? 'white' : item.color }}>Prévu: {formatTimeDisplay(item.planned)}</span></div>
                       <div className="flex flex-col items-end"><span className="text-xl font-black" style={{ color: isDarkMode ? 'white' : item.color }}>{formatTimeDisplay(item.actual)}</span><span className="text-[8px] font-black opacity-40 uppercase">RÉEL</span></div>
@@ -950,7 +1000,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {isModalOpen && <TaskModal categories={categories} onClose={() => { setIsModalOpen(false); setEditingTask(null); }} onSubmit={data => { if (editingTask) setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, ...data } : t)); else setTasks([...tasks, { ...data, id: Math.random().toString(36).substr(2, 9), actualSeconds: 0, isCompleted: false }]); setIsModalOpen(false); }} onDelete={editingTask ? () => { setTasks(tasks.filter(t => t.id !== editingTask.id)); setIsModalOpen(false); } : undefined} taskToEdit={editingTask || undefined} isDarkMode={isDarkMode} onAddCategory={(name, color) => { const id = `cat-${Math.random().toString(36).substr(2, 9)}`; setCategories([...categories, { id, name, color, lightColor: `${color}20` }]); return id; }} onRemoveCategory={id => setCategories(categories.filter(c => c.id !== id))} selectedDate={currentDate} />}
+      {isModalOpen && <TaskModal categories={categories} onClose={() => { setIsModalOpen(false); setEditingTask(null); }} onSubmit={data => { if (editingTask) setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, ...data } : t)); else setTasks([...tasks, { ...data, id: Math.random().toString(36).substr(2, 9), actualSeconds: 0, isCompleted: false }]); setSelectedStatsDate(parse(data.date, 'yyyy-MM-dd', new Date())); setIsModalOpen(false); }} onDelete={editingTask ? () => { setTasks(tasks.filter(t => t.id !== editingTask.id)); setIsModalOpen(false); } : undefined} taskToEdit={editingTask || undefined} isDarkMode={isDarkMode} onAddCategory={(name, color) => { const id = `cat-${Math.random().toString(36).substr(2, 9)}`; setCategories([...categories, { id, name, color, lightColor: `${color}20` }]); return id; }} onRemoveCategory={id => setCategories(categories.filter(c => c.id !== id))} selectedDate={selectedStatsDate} />}
       {isSettingsModalOpen && <SettingsModal userName={currentUser?.name || ''} timezone={currentUser?.timezone || ''} onClose={() => setIsSettingsModalOpen(false)} onLogout={() => { setCurrentUser(null); localStorage.removeItem('focus_current_user'); setAppView('landing'); }} onSave={(n, t) => { if (currentUser) { const u = { ...currentUser, name: n, timezone: t }; setCurrentUser(u); localStorage.setItem('focus_current_user', JSON.stringify(u)); } setIsSettingsModalOpen(false); }} isDarkMode={isDarkMode} onCopySync={copySyncCode} />}
       {isGrowthSelectOpen && <GrowthSelectionModal onSelect={type => { setGrowth(prev => ({ ...prev, type })); setIsGrowthSelectOpen(false); }} isDarkMode={isDarkMode} />}
     </div>
