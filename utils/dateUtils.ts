@@ -1,20 +1,9 @@
 
-import { format, addDays, getWeek } from 'date-fns';
+import { format, startOfWeek, endOfWeek, addDays, getWeek, startOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
-// Custom implementation for startOfWeek as it's not exported from the provided library version
-const startOfWeekCustom = (date: Date) => {
-  const d = new Date(date);
-  const day = d.getDay();
-  // Adjust for Monday start: Sunday (0) becomes 6, Monday (1) becomes 0, etc.
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const result = new Date(d.setDate(diff));
-  result.setHours(0, 0, 0, 0);
-  return result;
-};
-
 export const getWeekDates = (date: Date) => {
-  const start = startOfWeekCustom(date);
+  const start = startOfWeek(date, { weekStartsOn: 1 });
   return Array.from({ length: 7 }, (_, i) => addDays(start, i));
 };
 

@@ -3,9 +3,25 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { 
   format, 
   addWeeks, 
+  subWeeks, 
   isSameDay, 
+  getWeek, 
   addDays, 
-  isAfter
+  subDays, 
+  startOfMonth, 
+  endOfMonth, 
+  startOfWeek, 
+  endOfWeek, 
+  eachDayOfInterval, 
+  isSameMonth,
+  addMonths,
+  subMonths,
+  addYears,
+  subYears,
+  differenceInMinutes,
+  parse,
+  isAfter,
+  startOfDay
 } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { 
@@ -19,24 +35,38 @@ import {
   X,
   Palette,
   Trash2,
+  LayoutGrid,
+  ChevronRight as ChevronRightIcon,
+  BarChart3,
+  TrendingUp,
+  Clock,
+  Calendar as CalendarIcon,
+  Timer,
+  Trophy,
   BarChart,
+  User,
+  Globe,
+  CalendarDays,
+  ChevronsLeft,
+  ChevronsRight,
   Moon,
   Bell,
+  Lock,
+  Mail,
   LogOut,
+  ArrowRight,
   Sun,
+  Sprout,
   Flower2,
   TreePine,
   Bird,
   Sparkles,
   Zap,
   Baby,
-  ChevronRight as ChevronRightIcon,
-  Lock,
-  Eye,
-  EyeOff,
   Cloud,
-  Check,
-  AlertCircle,
+  CloudCheck,
+  Download,
+  Upload,
   RefreshCw
 } from 'lucide-react';
 import { Category, Task, TodoItem, SleepSchedule, GrowthType, GrowthState } from './types';
@@ -48,42 +78,17 @@ import LandingPage from './LandingPage';
 const HOUR_HEIGHT = 120; 
 const MIN_TASK_HEIGHT = 28; 
 
-// Service de synchronisation (Utilisation d'un endpoint persistant basé sur le nom de l'objet)
-const CLOUD_ENDPOINT = "https://api.restful-api.dev/objects";
-
-interface UserData {
-  tasks: Task[];
-  todos: TodoItem[];
-  categories: Category[];
-  sleep: SleepSchedule;
-  growth: GrowthState;
-}
-
 interface UserProfile {
-  id: string; // ID Cloud permanent
+  id: string;
   name: string;
   email: string;
-  password?: string;
   timezone: string;
-  data: UserData;
+  password?: string;
 }
 
 const GROWTH_THRESHOLDS = [0, 50, 150, 400];
 
-// Utilitaire pour transformer l'email en une clé unique pour le Cloud (SHA-256)
-const getEmailKey = async (email: string) => {
-  const msgBuffer = new TextEncoder().encode(email.toLowerCase().trim());
-  const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 20);
-};
-
-const customStartOfDay = (date: Date | number | string) => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
+// Helper: Format seconds to HH:MM:SS or MM:SS
 const formatSeconds = (totalSeconds: number) => {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
@@ -92,6 +97,7 @@ const formatSeconds = (totalSeconds: number) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
+// Helper: Format decimal hours to "1h 30min"
 const formatTimeDisplay = (hours: number) => {
   const h = Math.floor(hours);
   const m = Math.round((hours - h) * 60);
@@ -100,259 +106,97 @@ const formatTimeDisplay = (hours: number) => {
   return `${h}h ${m}min`;
 };
 
-// --- WIDGETS ---
-
-const GrowthWidget: React.FC<{ growth: GrowthState, dailyPoints: number, isDarkMode: boolean, onSelect: () => void }> = ({ growth, dailyPoints, isDarkMode, onSelect }) => {
-  const stage = GROWTH_THRESHOLDS.findIndex((t, i) => {
-    const next = GROWTH_THRESHOLDS[i + 1];
-    return growth.totalPoints >= t && (!next || growth.totalPoints < next);
-  });
-  const currentStage = stage === -1 ? GROWTH_THRESHOLDS.length - 1 : stage;
-  const nextThreshold = GROWTH_THRESHOLDS[currentStage + 1];
-  const progress = nextThreshold ? (growth.totalPoints / nextThreshold) * 100 : 100;
-
-  const renderGrowth = () => {
-    switch (growth.type) {
-      case 'fleur': return <FlowerGrowth stage={currentStage} isDarkMode={isDarkMode} />;
-      case 'arbre': return <TreeGrowth stage={currentStage} isDarkMode={isDarkMode} />;
-      case 'animal': return <BirdGrowth stage={currentStage} isDarkMode={isDarkMode} />;
-      case 'humain': return <BabyGrowth stage={currentStage} isDarkMode={isDarkMode} />;
-      default: return <FlowerGrowth stage={currentStage} isDarkMode={isDarkMode} />;
-    }
-  };
-
-  return (
-    <section className="bg-white dark:bg-[#0a0a0a] rounded-[2.5rem] p-6 shadow-sm border border-gray-100 dark:border-white/10 flex flex-col gap-3 relative overflow-visible group min-h-[160px]">
-      <div className="flex items-center justify-between relative z-10">
-        <div className="flex flex-col">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-white/40">Énergie Focus</h3>
-          <div className="flex items-center gap-1 mt-1">
-            <Zap size={18} className="text-amber-500 fill-amber-500" />
-            <span className="text-3xl font-black text-slate-800 dark:text-white">+{dailyPoints} pts</span>
-          </div>
-        </div>
-        <button onClick={onSelect} className="w-10 h-10 rounded-2xl bg-slate-50 dark:bg-white/5 flex items-center justify-center text-slate-400 hover:text-indigo-500 transition-colors shadow-sm">
-          <Palette size={18} />
-        </button>
-      </div>
-      <div className="absolute right-0 top-10 w-28 h-28 z-20 pointer-events-none drop-shadow-xl translate-x-2">
-        {renderGrowth()}
-      </div>
-      <div className="mt-auto space-y-1 relative z-10 max-w-[65%]">
-        <div className="h-2 w-full bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden">
-          <div className="h-full bg-indigo-500 transition-all duration-1000 shadow-[0_0_12px_rgba(99,102,241,0.3)]" style={{ width: `${progress}%` }} />
-        </div>
-        <div className="flex justify-between items-center text-[9px] font-black uppercase text-slate-400 dark:text-white/30 tracking-widest">
-          <span>Niveau {currentStage + 1}</span>
-          <span>{Math.round(progress)}%</span>
-        </div>
-      </div>
-    </section>
-  );
-};
-
-const TaskModal: React.FC<{ 
-  categories: Category[], onClose: () => void, onSubmit: (data: any) => void, onDelete?: () => void, 
-  taskToEdit?: Task, isDarkMode: boolean, onAddCategory: (n: string, c: string) => string, 
-  onRemoveCategory: (id: string) => void, selectedDate: Date 
-}> = ({ categories, onClose, onSubmit, onDelete, taskToEdit, isDarkMode, onAddCategory, onRemoveCategory, selectedDate }) => {
-  const [title, setTitle] = useState(taskToEdit?.title || '');
-  const [catId, setCatId] = useState(taskToEdit?.categoryId || categories[0]?.id || '');
-  const [time, setTime] = useState(taskToEdit?.startTime || '09:00');
-  
-  const initialDuration = taskToEdit?.durationHours || 1;
-  const [durH, setDurH] = useState(Math.floor(initialDuration));
-  const [durM, setDurM] = useState(Math.round((initialDuration % 1) * 60));
-
-  const [showCatEditor, setShowCatEditor] = useState(false);
-  const [newCatName, setNewCatName] = useState('');
-  const [newCatColor, setNewCatColor] = useState('#6366f1');
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-white dark:bg-[#0a0a0a] w-full max-w-md rounded-[3rem] p-8 shadow-2xl border border-white/10 flex flex-col gap-6 animate-in zoom-in-95 duration-300">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">{taskToEdit ? 'Modifier' : 'Nouvelle'} tâche</h2>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors"><X /></button>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">TITRE</label>
-            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Nom de la tâche" className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold text-slate-800 dark:text-white outline-none focus:ring-2 ring-indigo-500" />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <div className="flex justify-between items-center ml-4 mb-1">
-              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">CATÉGORIE</label>
-              <button onClick={() => setShowCatEditor(!showCatEditor)} className="text-[10px] font-black text-indigo-500 uppercase tracking-widest hover:underline">{showCatEditor ? 'RETOUR' : 'GÉRER'}</button>
-            </div>
-            
-            {showCatEditor ? (
-              <div className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl flex flex-col gap-3 border border-slate-100 dark:border-white/5">
-                <div className="flex gap-2">
-                  <input value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="Nouvelle catégorie..." className="flex-1 bg-white dark:bg-white/10 p-2 rounded-lg text-xs font-bold outline-none border border-slate-200 dark:border-white/10 dark:text-white" />
-                  <input type="color" value={newCatColor} onChange={e => setNewCatColor(e.target.value)} className="w-8 h-8 rounded-lg cursor-pointer border-2 border-white" />
-                  <button onClick={() => { if (newCatName) { onAddCategory(newCatName, newCatColor); setNewCatName(''); } }} className="bg-indigo-600 text-white p-2 rounded-lg shadow-md hover:bg-indigo-700"><Plus size={16} /></button>
-                </div>
-                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pt-2">
-                  {categories.map(c => (
-                    <div key={c.id} className="flex items-center gap-1.5 px-2 py-1.5 rounded-xl border-2 border-transparent transition-all" style={{ backgroundColor: isDarkMode ? `${c.color}20` : c.lightColor }}>
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.color }} />
-                      <span className="text-[10px] font-black uppercase tracking-tight" style={{ color: isDarkMode ? 'white' : c.color }}>{c.name}</span>
-                      <button onClick={() => onRemoveCategory(c.id)} className="text-red-400 hover:text-red-600 transition-colors ml-1"><X size={12} /></button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-2 bg-slate-50 dark:bg-white/5 p-3 rounded-2xl border border-slate-100 dark:border-white/5">
-                {categories.map(c => (
-                  <button 
-                    key={c.id} 
-                    onClick={() => setCatId(c.id)}
-                    className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all flex items-center gap-2 ${catId === c.id ? 'border-indigo-500 shadow-sm' : 'border-transparent opacity-60 hover:opacity-100'}`}
-                    style={{ 
-                      color: isDarkMode ? 'white' : c.color, 
-                      backgroundColor: isDarkMode ? `${c.color}30` : c.lightColor 
-                    }}
-                  >
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
-                    {c.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">HEURE</label>
-              <input type="time" value={time} onChange={e => setTime(e.target.value)} className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold text-slate-800 dark:text-white outline-none focus:ring-2 ring-indigo-500" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">DURÉE</label>
-              <div className="flex gap-2">
-                <div className="flex-1 flex items-center bg-slate-50 dark:bg-white/5 rounded-2xl px-3 group focus-within:ring-2 ring-indigo-500 transition-all border border-transparent">
-                  <input type="number" min="0" value={durH} onChange={e => setDurH(Number(e.target.value))} className="w-full bg-transparent py-4 font-bold text-slate-800 dark:text-white outline-none text-right" />
-                  <span className="text-[10px] font-black text-slate-400 ml-1">H</span>
-                </div>
-                <div className="flex-1 flex items-center bg-slate-50 dark:bg-white/5 rounded-2xl px-3 group focus-within:ring-2 ring-indigo-500 transition-all border border-transparent">
-                  <input type="number" min="0" max="59" step="5" value={durM} onChange={e => setDurM(Number(e.target.value))} className="w-full bg-transparent py-4 font-bold text-slate-800 dark:text-white outline-none text-right" />
-                  <span className="text-[10px] font-black text-slate-400 ml-1">M</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex gap-3 mt-4">
-          {onDelete && <button onClick={onDelete} className="p-4 bg-red-50 text-red-500 rounded-2xl hover:bg-red-100 transition-colors"><Trash2 size={20} /></button>}
-          <button onClick={() => {
-            const finalDuration = durH + (durM / 60);
-            onSubmit({ title, categoryId: catId, date: formatDate(selectedDate), startTime: time, durationHours: finalDuration });
-          }} className="flex-1 py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-indigo-200 dark:shadow-indigo-900/50 hover:scale-[1.02] active:scale-95 transition-all">
-            {taskToEdit ? 'Mettre à jour' : 'Créer la tâche'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// --- APP COMPONENT ---
-
 const App: React.FC = () => {
   const [appView, setAppView] = useState<'landing' | 'auth' | 'dashboard'>('landing');
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('focus_dark_mode') === 'true');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
   
   const [growth, setGrowth] = useState<GrowthState>({ type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 });
+  const [isGrowthSelectOpen, setIsGrowthSelectOpen] = useState(false);
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [now, setNow] = useState(new Date());
+  const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [todos, setTodos] = useState<TodoItem[]>([]);
-  const [sleep, setSleep] = useState<SleepSchedule>({ enabled: true, bedtime: '23:30', wakeTime: '07:00' });
-  const [dataLoaded, setDataLoaded] = useState(false);
-
-  const [isGrowthSelectOpen, setIsGrowthSelectOpen] = useState(false);
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [activeTimerId, setActiveTimerId] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [sleep, setSleep] = useState<SleepSchedule>({ enabled: true, bedtime: '23:30', wakeTime: '07:00' });
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clockRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     localStorage.setItem('focus_dark_mode', String(isDarkMode));
     document.documentElement.classList.toggle('dark', isDarkMode);
   }, [isDarkMode]);
 
-  // Chargement automatique si une session est active sur cet ordi
   useEffect(() => {
-    const savedUserId = localStorage.getItem('focus_last_active_user');
-    const usersJson = localStorage.getItem('focus_users_db');
-    if (savedUserId && usersJson) {
-      const users: UserProfile[] = JSON.parse(usersJson);
-      const user = users.find(u => u.id === savedUserId);
-      if (user) { 
-        loadUserData(user);
-        setAppView('dashboard'); 
-      }
+    const savedUser = localStorage.getItem('focus_current_user');
+    if (savedUser) {
+      const user = JSON.parse(savedUser);
+      setCurrentUser(user);
+      setAppView('dashboard');
+      // Simulate Cloud Fetch
+      setIsSyncing(true);
+      setTimeout(() => {
+        setIsSyncing(false);
+        setLastSynced(new Date());
+      }, 1500);
     }
     setIsAuthLoading(false);
   }, []);
 
-  const loadUserData = (user: UserProfile) => {
-    setCurrentUser(user);
-    if (user.data) {
-      setTasks(user.data.tasks || []);
-      setTodos(user.data.todos || []);
-      setCategories(user.data.categories || INITIAL_CATEGORIES);
-      setSleep(user.data.sleep || { enabled: true, bedtime: '23:30', wakeTime: '07:00' });
-      setGrowth(user.data.growth || { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 });
-    }
-    setDataLoaded(true);
-  };
-
-  // --- LOGIQUE DE SAUVEGARDE CLOUD ---
-  const pushToCloud = useCallback(async (user: UserProfile) => {
-    if (!user.id || user.id.length < 5) return;
-    setIsSyncing(true);
-    try {
-      await fetch(`${CLOUD_ENDPOINT}/${user.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: user.email, data: user })
-      });
-    } catch (e) {
-      console.warn("Sync cloud fail", e);
-    } finally {
-      setIsSyncing(false);
-    }
+  useEffect(() => {
+    clockRef.current = setInterval(() => setNow(new Date()), 60000);
+    return () => { if (clockRef.current) clearInterval(clockRef.current); };
   }, []);
 
+  // Load Data
   useEffect(() => {
-    if (!currentUser || !dataLoaded) return;
+    if (!currentUser) return;
+    const prefix = `focus_${currentUser.email}_`;
+    const savedTasks = localStorage.getItem(`${prefix}tasks`);
+    const savedTodos = localStorage.getItem(`${prefix}todos`);
+    const savedCategories = localStorage.getItem(`${prefix}categories`);
+    const savedSleep = localStorage.getItem(`${prefix}sleep`);
+    const savedGrowth = localStorage.getItem(`${prefix}growth`);
     
-    // Sauvegarde locale cache
-    const localUsers = JSON.parse(localStorage.getItem('focus_users_db') || '[]');
-    const updatedUser = { ...currentUser, data: { tasks, todos, categories, sleep, growth } };
-    const idx = localUsers.findIndex((u: any) => u.email === currentUser.email);
-    if (idx === -1) localUsers.push(updatedUser); else localUsers[idx] = updatedUser;
-    localStorage.setItem('focus_users_db', JSON.stringify(localUsers));
+    if (savedTasks) setTasks(JSON.parse(savedTasks));
+    if (savedTodos) setTodos(JSON.parse(savedTodos));
+    if (savedCategories) setCategories(JSON.parse(savedCategories));
+    if (savedSleep) setSleep(JSON.parse(savedSleep));
+    if (savedGrowth) setGrowth(JSON.parse(savedGrowth));
+    else setIsGrowthSelectOpen(true);
+  }, [currentUser]);
 
-    // Sauvegarde Cloud déboucée
-    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    syncTimeoutRef.current = setTimeout(() => {
-      pushToCloud(updatedUser);
-    }, 3000);
-  }, [tasks, todos, categories, sleep, growth, currentUser, dataLoaded, pushToCloud]);
+  // Save Data with Sync Simulation
+  useEffect(() => {
+    if (!currentUser) return;
+    const prefix = `focus_${currentUser.email}_`;
+    localStorage.setItem(`${prefix}tasks`, JSON.stringify(tasks));
+    localStorage.setItem(`${prefix}todos`, JSON.stringify(todos));
+    localStorage.setItem(`${prefix}categories`, JSON.stringify(categories));
+    localStorage.setItem(`${prefix}sleep`, JSON.stringify(sleep));
+    localStorage.setItem(`${prefix}growth`, JSON.stringify(growth));
+
+    // Simulated Auto-Sync on change
+    const syncTimeout = setTimeout(() => {
+      setIsSyncing(true);
+      setTimeout(() => {
+        setIsSyncing(false);
+        setLastSynced(new Date());
+      }, 800);
+    }, 2000);
+
+    return () => clearTimeout(syncTimeout);
+  }, [tasks, todos, categories, sleep, growth, currentUser]);
 
   const dailyPoints = useMemo(() => {
     let pts = 0;
@@ -362,9 +206,17 @@ const App: React.FC = () => {
       const completed = todayTasks.filter(t => t.isCompleted).length;
       if (completed / todayTasks.length >= 0.8) pts += 10;
     }
+    const [bH, bM] = sleep.bedtime.split(':').map(Number);
+    const [wH, wM] = sleep.wakeTime.split(':').map(Number);
+    let mins = (wH * 60 + wM) - (bH * 60 + bM);
+    if (mins < 0) mins += 1440;
+    const hours = mins / 60;
+    if (hours >= 7) pts += 15;
+    else if (hours >= 6) pts += 5;
+    pts += Math.floor(todayTasks.reduce((acc, t) => acc + (t.actualSeconds / 60), 0) / 25) * 5;
     pts += (growth.streak || 0) * 5;
     return pts;
-  }, [tasks, growth.streak]);
+  }, [tasks, sleep, growth.streak]);
 
   const syncTotalPoints = useCallback(() => {
     const todayStr = formatDate(new Date());
@@ -373,7 +225,7 @@ const App: React.FC = () => {
         ...prev,
         totalPoints: prev.totalPoints + dailyPoints,
         lastPointsUpdate: todayStr,
-        streak: isAfter(customStartOfDay(new Date()), addDays(customStartOfDay(new Date(prev.lastPointsUpdate)), 1)) ? 1 : prev.streak + 1
+        streak: isAfter(startOfDay(new Date()), addDays(startOfDay(new Date(prev.lastPointsUpdate)), 1)) ? 1 : prev.streak + 1
       }));
     }
   }, [dailyPoints, growth.lastPointsUpdate]);
@@ -407,77 +259,143 @@ const App: React.FC = () => {
 
   const weekDates = getWeekDates(currentDate);
   const displayDates = viewMode === 'week' ? weekDates : [currentDate];
-  const { label: weekLabel } = getDisplayWeek(currentDate);
+  const { label: weekLabel, month: weekMonth } = getDisplayWeek(currentDate);
   const currentWeekId = getWeekId(currentDate);
   const todayStr = formatDate(new Date());
-
+  
   const weeklySummary = categories.map(cat => {
     const filteredTasks = tasks.filter(t => t.categoryId === cat.id && getWeekId(new Date(t.date)) === currentWeekId);
     return { ...cat, actualHours: filteredTasks.reduce((acc, t) => acc + (t.actualSeconds / 3600), 0), plannedHours: filteredTasks.reduce((acc, t) => acc + t.durationHours, 0) };
   });
 
+  const totalWeeklyActual = weeklySummary.reduce((acc, s) => acc + s.actualHours, 0);
+  const maxWeeklyHours = Math.max(...weeklySummary.map(s => Math.max(s.actualHours, s.plannedHours)), 1);
   const todaySummary = categories.map(cat => {
     const filtered = tasks.filter(t => t.date === todayStr && t.categoryId === cat.id);
     return { ...cat, planned: filtered.reduce((acc, t) => acc + t.durationHours, 0), actual: filtered.reduce((acc, t) => acc + (t.actualSeconds / 3600), 0) };
   });
 
-  const totalTodayPlanned = todaySummary.reduce((acc, s) => acc + s.planned, 0);
-
-  const maxWeeklyHours = Math.max(...weeklySummary.map(s => Math.max(s.actualHours, s.plannedHours)), 1);
-
   const getLayoutedTasks = useCallback((dayTasks: Task[]) => {
     if (dayTasks.length === 0) return [];
-    return dayTasks.map(t => {
+    const metrics = dayTasks.map(t => {
       const [h, m] = t.startTime.split(':').map(Number);
       const top = (h * HOUR_HEIGHT) + ((m / 60) * HOUR_HEIGHT);
       const height = Math.max(t.durationHours * HOUR_HEIGHT, MIN_TASK_HEIGHT);
-      return { task: t, top, height, left: 0, width: 99.5 };
+      return { task: t, top, height, bottom: top + height };
     });
+    metrics.sort((a, b) => a.top - b.top);
+    const clusters: typeof metrics[] = [];
+    metrics.forEach(item => {
+      const cluster = clusters.find(c => c.some(ex => item.top < ex.bottom && item.bottom > ex.top));
+      if (cluster) cluster.push(item); else clusters.push([item]);
+    });
+    const layout: (typeof metrics[0] & { left: number, width: number })[] = [];
+    clusters.forEach(cluster => {
+      const cols: typeof metrics[] = [];
+      cluster.forEach(item => {
+        let placed = false;
+        for (let i = 0; i < cols.length; i++) {
+          if (item.top >= cols[i][cols[i].length - 1].bottom) { cols[i].push(item); placed = true; break; }
+        }
+        if (!placed) cols.push([item]);
+      });
+      const width = 100 / cols.length;
+      cols.forEach((col, idx) => col.forEach(item => layout.push({ ...item, left: idx * width, width: width - 0.5 })));
+    });
+    return layout;
   }, []);
 
-  const handleLogout = useCallback(() => {
-    setCurrentUser(null);
-    localStorage.removeItem('focus_last_active_user');
-    setAppView('landing');
-    setDataLoaded(false);
-  }, []);
+  const handleExportData = () => {
+    const data = {
+      tasks, todos, categories, sleep, growth,
+      version: "1.0",
+      exportedAt: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `focus_calendar_backup_${currentUser?.name.replace(/\s+/g, '_')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
-  if (isAuthLoading) return <div className="flex items-center justify-center h-screen"><div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>;
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (data.tasks) setTasks(data.tasks);
+        if (data.todos) setTodos(data.todos);
+        if (data.categories) setCategories(data.categories);
+        if (data.sleep) setSleep(data.sleep);
+        if (data.growth) setGrowth(data.growth);
+        alert('Agenda synchronisé avec succès !');
+      } catch (err) {
+        alert('Format de fichier invalide.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  if (isAuthLoading) return <div className="flex items-center justify-center h-screen bg-slate-50 dark:bg-black"><div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (appView === 'landing') return <LandingPage onStart={() => setAppView('auth')} onLogin={() => setAppView('auth')} />;
-  if (appView === 'auth' && !currentUser) return (
-    <AuthScreen 
-      onAuthSuccess={user => { 
-        loadUserData(user);
-        localStorage.setItem('focus_last_active_user', user.id); 
-        setAppView('dashboard'); 
-      }} 
-      onBack={() => setAppView('landing')} 
-      isDarkMode={isDarkMode}
-    />
-  );
+  if (appView === 'auth' && !currentUser) return <AuthScreen onAuthSuccess={user => { setCurrentUser(user); localStorage.setItem('focus_current_user', JSON.stringify(user)); setAppView('dashboard'); }} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} onBack={() => setAppView('landing')} />;
 
   return (
     <div className={`${isDarkMode ? 'dark' : ''} h-screen bg-[#f1f2f6] dark:bg-black p-4 lg:p-6 overflow-hidden flex`}>
-      {/* SIDEBAR */}
-      <aside className="w-80 flex flex-col gap-6 pr-6 border-r border-gray-200 dark:border-white/10 overflow-y-auto custom-scrollbar shrink-0">
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Bonjour {currentUser?.name} 👋</h1>
-        
+      <aside className="w-80 flex flex-col gap-6 pr-6 border-r border-gray-200 dark:border-white/10 overflow-y-auto custom-scrollbar">
+        <header className="flex flex-col gap-1">
+          <h1 className="text-2xl font-black text-slate-800 dark:text-white leading-tight">Bonjour {currentUser?.name} 👋</h1>
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              {isSyncing ? 'Synchronisation...' : `En ligne - ${lastSynced ? format(lastSynced, 'HH:mm') : ''}`}
+            </span>
+          </div>
+        </header>
+
         <GrowthWidget growth={growth} dailyPoints={dailyPoints} isDarkMode={isDarkMode} onSelect={() => setIsGrowthSelectOpen(true)} />
         
         <section className="bg-white dark:bg-[#0a0a0a] rounded-[2.5rem] p-6 shadow-sm border border-gray-100 dark:border-white/10 flex flex-col gap-6">
           <h3 className="text-slate-800 dark:text-white font-black text-[10px] tracking-widest flex items-center gap-2"><Moon size={16} className="text-indigo-500" /> Sommeil</h3>
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-slate-50 dark:bg-white/5 rounded-2xl p-3 flex flex-col gap-1 items-start border border-indigo-50 dark:border-indigo-900/20 shadow-sm">
-              <span className="text-indigo-400 font-black text-[9px] uppercase tracking-widest">Coucher</span>
-              <span className="text-slate-800 dark:text-white font-black">{sleep.bedtime}</span>
+            <div className="bg-slate-50 dark:bg-white/5 rounded-2xl p-3 flex flex-col gap-1 relative overflow-hidden group hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer border border-transparent hover:border-indigo-200">
+               <span className="text-indigo-400 font-black text-[9px] uppercase">Coucher</span>
+               <div className="relative">
+                 <input 
+                   type="time" 
+                   value={sleep.bedtime} 
+                   onChange={e => setSleep({...sleep, bedtime: e.target.value})} 
+                   className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full"
+                 />
+                 <span className="text-slate-800 dark:text-white font-black text-lg leading-tight flex items-center gap-1">
+                   {sleep.bedtime} <Clock size={12} className="opacity-30" />
+                 </span>
+               </div>
             </div>
-            <div className="bg-slate-50 dark:bg-white/5 rounded-2xl p-3 flex flex-col gap-1 items-end border border-amber-50 dark:border-amber-900/20 shadow-sm">
-              <span className="text-amber-500 font-black text-[9px] uppercase tracking-widest">Réveil</span>
-              <span className="text-slate-800 dark:text-white font-black">{sleep.wakeTime}</span>
+            <div className="bg-slate-50 dark:bg-white/5 rounded-2xl p-3 flex flex-col gap-1 items-end relative overflow-hidden group hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer border border-transparent hover:border-amber-200">
+               <span className="text-amber-500 font-black text-[9px] uppercase">Réveil</span>
+               <div className="relative">
+                 <input 
+                   type="time" 
+                   value={sleep.wakeTime} 
+                   onChange={e => setSleep({...sleep, wakeTime: e.target.value})} 
+                   className="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full"
+                 />
+                 <span className="text-slate-800 dark:text-white font-black text-lg leading-tight flex items-center gap-1">
+                   <Clock size={12} className="opacity-30" /> {sleep.wakeTime}
+                 </span>
+               </div>
             </div>
           </div>
-          <div className="relative flex items-center justify-center py-4 scale-90">
+          <div className="relative flex items-center justify-center py-4">
              <SleepDial sleep={sleep} setSleep={setSleep} isDarkMode={isDarkMode} />
+             <div className="absolute flex flex-col items-center pointer-events-none">
+                <div className="flex items-baseline"><span className="text-4xl font-black text-slate-800 dark:text-white">{Math.floor(((parse(sleep.wakeTime, 'HH:mm', new Date()).getTime() - parse(sleep.bedtime, 'HH:mm', new Date()).getTime()) / 60000 + 1440) % 1440 / 60)}</span><span className="text-xs font-bold text-slate-400 uppercase ml-0.5">h</span></div>
+             </div>
           </div>
         </section>
 
@@ -495,93 +413,74 @@ const App: React.FC = () => {
            </div>
         </section>
 
-        <section className="bg-white dark:bg-[#0a0a0a] rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-white/10 flex flex-col gap-4">
-          <h3 className="text-slate-700 dark:text-white font-black text-[10px] uppercase tracking-widest">To-do du jour</h3>
+        <section className="bg-white dark:bg-[#0a0a0a] rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-white/10">
+          <h3 className="text-slate-700 dark:text-white font-bold mb-4">To-do du jour</h3>
           <div className="flex flex-col gap-4">
-            {categories.map(cat => {
-              const catTodos = todos.filter(t => t.date === todayStr && t.text.includes(`[${cat.id}]`));
-              return (
-                <div key={cat.id} className="flex flex-col gap-1.5">
-                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md inline-block w-fit" style={{ backgroundColor: isDarkMode ? `${cat.color}30` : cat.lightColor, color: isDarkMode ? 'white' : cat.color }}>{cat.name}</span>
-                  {catTodos.map(todo => (
-                    <div key={todo.id} onClick={() => setTodos(todos.map(t => t.id === todo.id ? { ...t, completed: !t.completed } : t))} className="flex items-center gap-2 cursor-pointer group">
-                      <div className={`w-4 h-4 rounded border transition-colors flex items-center justify-center ${todo.completed ? 'bg-indigo-500 border-indigo-500 text-white' : 'border-slate-300 dark:border-white/10'}`}>{todo.completed && <CheckCircle2 size={12} />}</div>
-                      <span className={`text-[11px] font-medium transition-all ${todo.completed ? 'text-slate-300 line-through' : 'text-slate-600 dark:text-white/80'}`}>{todo.text.replace(`[${cat.id}]`, '').trim()}</span>
-                    </div>
-                  ))}
-                  <div className="relative group h-7">
-                    <input 
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && e.currentTarget.value) {
-                          setTodos([...todos, { id: Math.random().toString(36).substr(2, 9), text: `[${cat.id}] ${e.currentTarget.value}`, completed: false, type: 'daily', date: todayStr }]);
-                          e.currentTarget.value = '';
-                        }
-                      }}
-                      placeholder="Ajouter..." 
-                      className="w-full h-full bg-slate-50 dark:bg-white/5 rounded-lg px-2 text-[10px] font-bold outline-none border border-transparent focus:border-indigo-400 dark:text-white"
-                    />
+            {categories.map(cat => (
+              <div key={cat.id} className="flex flex-col gap-1">
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-lg inline-block w-fit" style={{ backgroundColor: isDarkMode ? `${cat.color}30` : cat.lightColor, color: isDarkMode ? 'white' : cat.color }}>{cat.name}</span>
+                {todos.filter(t => t.type === 'daily' && t.date === todayStr && t.text.includes(`[${cat.id}]`)).map(todo => (
+                  <div key={todo.id} onClick={() => setTodos(todos.map(t => t.id === todo.id ? { ...t, completed: !t.completed } : t))} className="flex items-center gap-2 cursor-pointer group">
+                    <div className={`w-4 h-4 rounded border transition-colors ${todo.completed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 dark:border-white/10'}`}>{todo.completed && <CheckCircle2 size={12} />}</div>
+                    <span className={`text-xs ${todo.completed ? 'text-slate-400 line-through' : 'text-slate-600 dark:text-white'}`}>{todo.text.replace(`[${cat.id}]`, '').trim()}</span>
                   </div>
-                </div>
-              );
-            })}
+                ))}
+                <AddInput onAdd={txt => setTodos([...todos, { id: Math.random().toString(36).substr(2, 9), text: `[${cat.id}] ${txt}`, completed: false, type: 'daily', date: todayStr }])} placeholder="Ajouter..." className="text-[10px] h-7" />
+              </div>
+            ))}
           </div>
         </section>
       </aside>
 
-      {/* MAIN CALENDAR */}
       <main className="flex-1 flex flex-col gap-6 ml-6 overflow-hidden">
         <header className="flex items-center justify-between h-14">
           <div className="bg-slate-100 dark:bg-white/10 rounded-xl p-1 flex">
             {['week', 'day'].map(m => <button key={m} onClick={() => setViewMode(m as any)} className={`px-4 py-1.5 text-xs font-bold rounded-lg ${viewMode === m ? 'bg-white dark:bg-white/20 shadow-sm text-slate-800 dark:text-white' : 'text-slate-400 dark:text-white/40'}`}>{m === 'week' ? 'Semaine' : 'Jour'}</button>)}
           </div>
           <div className="flex items-center gap-4">
-            <button onClick={() => setCurrentDate(viewMode === 'week' ? addWeeks(currentDate, -1) : addDays(currentDate, -1))} className="p-2 text-slate-400 hover:text-indigo-500"><ChevronLeft /></button>
-            <h2 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight">{viewMode === 'week' ? weekLabel : format(currentDate, 'EEEE d MMMM', { locale: fr })}</h2>
-            <button onClick={() => setCurrentDate(viewMode === 'week' ? addWeeks(currentDate, 1) : addDays(currentDate, 1))} className="p-2 text-slate-400 hover:text-indigo-500"><ChevronRight /></button>
+            <button onClick={() => setCurrentDate(viewMode === 'week' ? subWeeks(currentDate, 1) : subDays(currentDate, 1))} className="p-2 text-slate-400"><ChevronLeft /></button>
+            <h2 className="text-xl font-black text-slate-800 dark:text-white tracking-tight">{viewMode === 'week' ? weekLabel : format(currentDate, 'EEEE d MMMM', { locale: fr })}</h2>
+            <button onClick={() => setCurrentDate(viewMode === 'week' ? addWeeks(currentDate, 1) : addDays(currentDate, 1))} className="p-2 text-slate-400"><ChevronRight /></button>
           </div>
           <div className="flex items-center gap-3">
-             <div className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/20 px-3 py-2 rounded-xl text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-500/20">
-               {isSyncing ? <RefreshCw size={16} className="animate-spin" /> : <Cloud size={16} />}
-               <span className="text-[10px] font-black uppercase tracking-widest">{isSyncing ? 'SYNC EN COURS...' : 'SYNCHRONISÉ'}</span>
+            <div className="relative group">
+              <button className={`p-3 bg-white dark:bg-white/10 rounded-2xl border border-gray-100 dark:border-white/10 ${isSyncing ? 'text-indigo-500' : 'text-slate-400'}`}>
+                {isSyncing ? <RefreshCw className="animate-spin" /> : <CloudCheck className="text-emerald-500" />}
+              </button>
+              <div className="absolute right-0 top-full mt-2 hidden group-hover:block bg-white dark:bg-slate-900 shadow-xl rounded-xl p-3 border dark:border-white/10 z-50 min-w-[200px]">
+                <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Synchronisation Cloud</p>
+                <div className="flex flex-col gap-2">
+                   <button onClick={handleExportData} className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-white hover:text-indigo-500 transition-colors">
+                     <Download size={14} /> Exporter mon Agenda
+                   </button>
+                   <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-white hover:text-indigo-500 transition-colors cursor-pointer">
+                     <Upload size={14} /> Importer un Agenda
+                     <input type="file" accept=".json" onChange={handleImportData} className="hidden" />
+                   </label>
+                </div>
+              </div>
             </div>
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-3 bg-white dark:bg-white/10 rounded-2xl border border-gray-100 dark:border-white/10">{isDarkMode ? <Sun className="text-amber-400" /> : <Moon className="text-slate-600" />}</button>
-            <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="p-3 bg-[#1e293b] dark:bg-indigo-600 text-white rounded-2xl shadow-lg hover:scale-105 transition-transform"><Plus /></button>
+            <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-200 dark:shadow-none"><Plus /></button>
             <button onClick={() => setIsSettingsModalOpen(true)} className="p-3 bg-white dark:bg-white/10 rounded-2xl border border-gray-100 dark:border-white/10 text-slate-400"><Settings /></button>
           </div>
         </header>
 
-        <div className="flex-1 bg-white dark:bg-[#0a0a0a] rounded-[2.5rem] shadow-sm border border-gray-200 dark:border-white/10 flex flex-col overflow-hidden relative">
-           <div className="flex border-b border-gray-200 dark:border-white/10 bg-slate-50/50 dark:bg-white/5 relative z-20">
-              <div className="w-20 shrink-0" />
-              {displayDates.map((d, i) => {
-                const isToday = isSameDay(d, new Date());
-                return (
-                  <div key={i} className="flex-1 py-4 text-center flex flex-col gap-1 border-r border-gray-100 dark:border-white/5 last:border-0 items-center">
-                    <span className={`text-[10px] font-black uppercase ${isToday ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>{DAYS_FR[d.getDay() === 0 ? 6 : d.getDay() - 1]}</span>
-                    {isToday ? (
-                      <div className="relative">
-                         <div className="absolute inset-0 bg-indigo-500/25 rounded-full scale-[1.6] blur-md animate-pulse"></div>
-                         <span className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-sm font-black shadow-lg shadow-indigo-300 dark:shadow-indigo-900/50 relative z-10">{format(d, 'd')}</span>
-                      </div>
-                    ) : (
-                      <span className="text-sm font-black text-slate-300 dark:text-white/20">{format(d, 'd')}</span>
-                    )}
-                  </div>
-                );
-              })}
+        <div className="flex-1 bg-white dark:bg-[#0a0a0a] rounded-[2.5rem] shadow-sm border border-gray-200 dark:border-white/10 flex flex-col overflow-hidden">
+           <div className="flex border-b border-gray-200 dark:border-white/10 bg-slate-50/50 dark:bg-white/5">
+              <div className="w-20" />
+              {displayDates.map((d, i) => (
+                <div key={i} className="flex-1 py-4 text-center flex flex-col gap-1">
+                  <span className={`text-[10px] font-black uppercase ${isSameDay(d, new Date()) ? 'text-indigo-600' : 'text-slate-400'}`}>{DAYS_FR[d.getDay() === 0 ? 6 : d.getDay() - 1]}</span>
+                  <span className={`text-sm font-black ${isSameDay(d, new Date()) ? 'text-white bg-indigo-600 w-8 h-8 flex items-center justify-center rounded-full mx-auto' : 'text-slate-300 dark:text-white/20'}`}>{format(d, 'd')}</span>
+                </div>
+              ))}
            </div>
            <div className="flex-1 overflow-y-auto relative flex custom-scrollbar">
-              <div className="absolute inset-0 pointer-events-none">
-                 <div className="flex h-full">
-                    <div className="w-20 shrink-0" />
-                    {displayDates.map((_, i) => (<div key={i} className="flex-1 border-r border-slate-300 dark:border-white/15 last:border-0" />))}
-                 </div>
-                 {TIME_SLOTS.map((_, i) => (<div key={i} className="absolute w-full border-b border-slate-300 dark:border-white/15" style={{ top: i * HOUR_HEIGHT, left: 0, height: 1 }} />))}
+              <div className="w-20 bg-slate-50/30 dark:bg-white/5 border-r border-gray-200 dark:border-white/10 shrink-0">
+                {TIME_SLOTS.map(t => <div key={t} style={{ height: HOUR_HEIGHT }} className="border-b border-gray-200 dark:border-white/10 flex justify-center pt-2 text-[10px] font-bold text-slate-300 uppercase">{t}</div>)}
               </div>
-              <div className="w-20 bg-slate-50/30 dark:bg-white/5 border-r border-gray-200 dark:border-white/10 shrink-0 relative z-10">
-                {TIME_SLOTS.map(t => <div key={t} style={{ height: HOUR_HEIGHT }} className="flex justify-center pt-2 text-[10px] font-bold text-slate-300 dark:text-slate-500 uppercase">{t}</div>)}
-              </div>
-              <div className="flex-1 flex relative z-10">
+              <div className="flex-1 flex relative">
                 {displayDates.map((date, idx) => {
                   const dayStr = formatDate(date);
                   const layout = getLayoutedTasks(tasks.filter(t => t.date === dayStr));
@@ -594,16 +493,13 @@ const App: React.FC = () => {
                       const m = Math.floor((mins % 60) / 5) * 5;
                       setTasks(tasks.map(t => t.id === draggedTaskId ? { ...t, date: dayStr, startTime: `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}` } : t));
                       setDraggedTaskId(null);
-                    }} className="flex-1 relative">
+                    }} className="flex-1 border-r border-gray-100 dark:border-white/5 relative">
                       {layout.map(item => {
                         const cat = categories.find(c => c.id === item.task.categoryId) || categories[0];
                         return (
-                          <div key={item.task.id} draggable onDragStart={() => setDraggedTaskId(item.task.id)} onDoubleClick={() => { setEditingTask(item.task); setIsModalOpen(true); }} className="absolute rounded-xl p-2 shadow-sm border-2 border-white/50 dark:border-white/10 z-10 cursor-grab active:cursor-grabbing overflow-hidden group transition-transform" style={{ top: item.top, height: item.height, left: `${item.left}%`, width: `${item.width}%`, backgroundColor: isDarkMode ? `${cat.color}60` : cat.lightColor }}>
+                          <div key={item.task.id} draggable onDragStart={() => setDraggedTaskId(item.task.id)} onDoubleClick={() => { setEditingTask(item.task); setIsModalOpen(true); }} className="absolute rounded-xl p-2 shadow-sm border-2 border-white/50 dark:border-white/10 z-10 cursor-grab active:cursor-grabbing overflow-hidden group" style={{ top: item.top, height: item.height, left: `${item.left}%`, width: `${item.width}%`, backgroundColor: isDarkMode ? `${cat.color}60` : cat.lightColor }}>
                             <div className="flex flex-col h-full justify-between">
-                               <div className="flex flex-col">
-                                  <span className="text-[8px] font-black uppercase" style={{ color: isDarkMode ? 'white' : cat.color }}>{cat.name}</span>
-                                  <h4 className="text-[11px] font-black leading-tight" style={{ color: isDarkMode ? 'white' : cat.color }}>{item.task.title}</h4>
-                               </div>
+                               <div className="flex flex-col"><span className="text-[8px] font-black uppercase" style={{ color: isDarkMode ? 'white' : cat.color }}>{cat.name}</span><h4 className="text-[11px] font-black leading-tight" style={{ color: isDarkMode ? 'white' : cat.color }}>{item.task.title}</h4></div>
                                <div className="flex items-center justify-between mt-auto">
                                   <button onClick={e => { e.stopPropagation(); toggleTimer(item.task.id); }} className={`p-1 rounded-full ${activeTimerId === item.task.id ? 'bg-orange-500 text-white animate-pulse' : 'bg-white/80 text-slate-500'}`}>{activeTimerId === item.task.id ? <Pause size={10} /> : <Play size={10} />}</button>
                                   {item.task.actualSeconds > 0 && <span className="text-[9px] font-mono font-black" style={{ color: isDarkMode ? 'white' : cat.color }}>{formatSeconds(item.task.actualSeconds)}</span>}
@@ -617,412 +513,275 @@ const App: React.FC = () => {
                 })}
               </div>
            </div>
-
-           {/* TODAY SUMMARY FOOTER */}
-           <div className="p-6 border-t border-slate-100 dark:border-white/10 bg-white dark:bg-[#0a0a0a] z-30">
-              <div className="flex flex-col gap-4">
-                 <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
-                       <BarChart size={16} className="text-indigo-500" />
-                       Aujourd'hui – {format(new Date(), 'EEEE', { locale: fr })}
-                    </h3>
-                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Total : {totalTodayPlanned}h planifiés</p>
-                 </div>
-                 <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-2 no-scrollbar">
-                    {todaySummary.map((s, i) => (
-                      <div key={i} className="min-w-[210px] p-5 rounded-[2rem] border-2 border-transparent flex items-center justify-between group cursor-pointer shadow-sm hover:scale-[1.02] transition-all hover:shadow-lg active:scale-95" style={{ backgroundColor: isDarkMode ? `${s.color}25` : s.lightColor }}>
-                         <div className="flex flex-col">
-                            <div className="flex items-center gap-1.5">
-                               <span className="text-[9px] font-black uppercase tracking-widest leading-none" style={{ color: isDarkMode ? 'white' : s.color }}>{s.name}</span>
-                               <ChevronRightIcon size={10} style={{ color: isDarkMode ? 'white' : s.color }} className="opacity-40" />
-                            </div>
-                            <span className="text-[10px] font-bold opacity-60 mt-2" style={{ color: isDarkMode ? 'white' : s.color }}>Planifié: {s.planned}h</span>
-                         </div>
-                         <div className="flex flex-col items-end">
-                            <span className="text-2xl font-black" style={{ color: isDarkMode ? 'white' : s.color }}>{formatTimeDisplay(s.actual)}</span>
-                            <span className="text-[8px] font-black opacity-30 uppercase tracking-tighter" style={{ color: isDarkMode ? 'white' : s.color }}>RÉEL</span>
-                         </div>
-                      </div>
-                    ))}
-                 </div>
+           <div className="p-6 border-t border-gray-200 dark:border-white/10">
+              <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
+                 {todaySummary.map(item => (
+                   <div key={item.id} className="min-w-[240px] p-5 rounded-3xl border flex items-center justify-between" style={{ backgroundColor: isDarkMode ? `${item.color}30` : item.lightColor, borderColor: `${item.color}40` }}>
+                      <div className="flex flex-col"><span className="text-[10px] font-black uppercase" style={{ color: isDarkMode ? 'white' : item.color }}>{item.name}</span><span className="text-[10px] font-bold opacity-60" style={{ color: isDarkMode ? 'white' : item.color }}>Prévu: {formatTimeDisplay(item.planned)}</span></div>
+                      <div className="flex flex-col items-end"><span className="text-xl font-black" style={{ color: isDarkMode ? 'white' : item.color }}>{formatTimeDisplay(item.actual)}</span><span className="text-[8px] font-black opacity-40 uppercase">RÉEL</span></div>
+                   </div>
+                 ))}
               </div>
            </div>
         </div>
       </main>
 
-      {/* MODALS */}
       {isModalOpen && <TaskModal categories={categories} onClose={() => { setIsModalOpen(false); setEditingTask(null); }} onSubmit={data => { if (editingTask) setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, ...data } : t)); else setTasks([...tasks, { ...data, id: Math.random().toString(36).substr(2, 9), actualSeconds: 0, isCompleted: false }]); setIsModalOpen(false); }} onDelete={editingTask ? () => { setTasks(tasks.filter(t => t.id !== editingTask.id)); setIsModalOpen(false); } : undefined} taskToEdit={editingTask || undefined} isDarkMode={isDarkMode} onAddCategory={(name, color) => { const id = `cat-${Math.random().toString(36).substr(2, 9)}`; setCategories([...categories, { id, name, color, lightColor: `${color}20` }]); return id; }} onRemoveCategory={id => setCategories(categories.filter(c => c.id !== id))} selectedDate={currentDate} />}
-      {isSettingsModalOpen && <SettingsModal userName={currentUser?.name || ''} userEmail={currentUser?.email || ''} onClose={() => setIsSettingsModalOpen(false)} onLogout={handleLogout} onSave={(n) => { if (currentUser) setCurrentUser({ ...currentUser, name: n }); setIsSettingsModalOpen(false); }} />}
+      {isSettingsModalOpen && <SettingsModal userName={currentUser?.name || ''} timezone={currentUser?.timezone || ''} onClose={() => setIsSettingsModalOpen(false)} onLogout={() => { setCurrentUser(null); localStorage.removeItem('focus_current_user'); setAppView('landing'); }} onSave={(n, t) => { if (currentUser) { const u = { ...currentUser, name: n, timezone: t }; setCurrentUser(u); localStorage.setItem('focus_current_user', JSON.stringify(u)); } setIsSettingsModalOpen(false); }} isDarkMode={isDarkMode} onExport={handleExportData} />}
       {isGrowthSelectOpen && <GrowthSelectionModal onSelect={type => { setGrowth(prev => ({ ...prev, type })); setIsGrowthSelectOpen(false); }} isDarkMode={isDarkMode} />}
     </div>
   );
 };
 
-// --- SETTINGS MODAL ---
-
-const SettingsModal: React.FC<{ 
-  userName: string, 
-  userEmail: string,
-  onClose: () => void, 
-  onLogout: () => void, 
-  onSave: (name: string) => void
-}> = ({ userName, userEmail, onClose, onLogout, onSave }) => {
-  const [name, setName] = useState(userName);
-
+// Sub-components
+const GrowthWidget: React.FC<{ growth: GrowthState, dailyPoints: number, isDarkMode: boolean, onSelect: () => void }> = ({ growth, dailyPoints, isDarkMode, onSelect }) => {
+  const stage = growth.totalPoints >= 400 ? 3 : growth.totalPoints >= 150 ? 2 : growth.totalPoints >= 50 ? 1 : 0;
+  const Visual = growth.type === 'arbre' ? TreeGrowth : growth.type === 'animal' ? BirdGrowth : growth.type === 'humain' ? BabyGrowth : FlowerGrowth;
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-white dark:bg-[#0a0a0a] w-full max-w-md rounded-[3rem] p-8 shadow-2xl border border-white/10 flex flex-col gap-6 animate-in zoom-in-95 duration-300">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Paramètres</h2>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors"><X /></button>
-        </div>
+    <section onClick={onSelect} className="bg-white dark:bg-[#0a0a0a] rounded-[2.5rem] p-6 shadow-sm border border-gray-100 dark:border-white/10 flex flex-col gap-4 cursor-pointer hover:shadow-md transition-all border-b-4 border-b-emerald-500/10">
+      <div className="flex justify-between items-center"><div className="flex flex-col"><span className="text-[10px] font-black uppercase text-slate-400">Points Focus</span><div className="flex items-center gap-1"><Zap size={12} className="text-amber-500 fill-amber-500" /><span className="text-xl font-black text-slate-800 dark:text-white">+{dailyPoints} pts</span></div></div><div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center text-emerald-600 font-black">{growth.streak}d</div></div>
+      <div className="flex items-center gap-4 py-2"><div className="w-16 h-16 shrink-0"><Visual stage={stage} isDarkMode={isDarkMode} /></div><div className="flex-1 flex flex-col gap-1"><p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 italic">"Chaque minute compte."</p><div className="h-2 w-full bg-slate-100 dark:bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, ((growth.totalPoints - (stage === 0 ? 0 : GROWTH_THRESHOLDS[stage])) / ((GROWTH_THRESHOLDS[stage+1] || 1000) - (stage === 0 ? 0 : GROWTH_THRESHOLDS[stage]))) * 100)}%` }} /></div><div className="flex justify-between text-[9px] font-black text-slate-300"><span>Niveau {stage + 1}</span><span>{growth.totalPoints} pts</span></div></div></div>
+    </section>
+  );
+};
 
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">PROFIL</label>
-            <div className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl flex flex-col gap-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Nom</label>
-                <input value={name} onChange={setName ? (e) => setName(e.target.value) : undefined} placeholder="Votre nom" className="bg-white dark:bg-white/5 p-3 rounded-xl font-bold text-slate-800 dark:text-white outline-none border border-slate-100 dark:border-white/10" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Email (Synchronisation)</label>
-                <div className="bg-slate-100 dark:bg-black/20 p-3 rounded-xl font-bold text-slate-400 cursor-not-allowed text-xs">{userEmail}</div>
-              </div>
+const GrowthSelectionModal: React.FC<{ onSelect: (type: GrowthType) => void, isDarkMode: boolean }> = ({ onSelect, isDarkMode }) => {
+  const options: { type: GrowthType, label: string, Visual: any, desc: string }[] = [
+    { type: 'fleur', label: 'Fleur de Focus', Visual: FlowerGrowth, desc: 'S\'épanouit avec la complétion des tâches.' },
+    { type: 'arbre', label: 'Arbre de Vie', Visual: TreeGrowth, desc: 'Grandit avec un sommeil régulier.' },
+    { type: 'animal', label: 'Phénix Focus', Visual: BirdGrowth, desc: 'S\'élève avec les sessions de travail profond.' },
+    { type: 'humain', label: 'Évolution Humaine', Visual: BabyGrowth, desc: 'Apprend et évolue avec votre discipline.' }
+  ];
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#0a0a0a] rounded-[3rem] p-8 max-w-2xl w-full flex flex-col gap-8 shadow-2xl">
+        <h2 className="text-3xl font-black text-slate-800 dark:text-white text-center">Choisissez votre compagnon</h2>
+        <div className="grid grid-cols-2 gap-6">
+          {options.map(opt => (
+            <div key={opt.type} onClick={() => onSelect(opt.type)} className="p-6 rounded-[2rem] border-2 border-slate-50 dark:border-white/5 hover:border-indigo-500 cursor-pointer flex flex-col items-center gap-4 transition-all hover:scale-105 group">
+              <div className="w-24 h-24 group-hover:animate-float"><opt.Visual stage={3} isDarkMode={isDarkMode} /></div>
+              <div className="text-center"><h3 className="text-lg font-black text-slate-800 dark:text-white">{opt.label}</h3><p className="text-xs text-slate-400 dark:text-white/40">{opt.desc}</p></div>
             </div>
-          </div>
-
-          <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-500/10">
-             <div className="flex items-center gap-2 mb-2">
-                <Cloud size={16} className="text-indigo-600" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700 dark:text-indigo-300">Compte Multi-Appareils</span>
-             </div>
-             <p className="text-[10px] font-medium text-indigo-600/80 dark:text-indigo-300/60 leading-relaxed">
-               Vos données sont liées à votre email. Vous pouvez vous connecter sur n'importe quel ordinateur pour retrouver vos rendez-vous instantanément.
-             </p>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3 mt-4">
-          <button onClick={() => onSave(name)} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-indigo-200 dark:shadow-indigo-900/50 hover:scale-[1.02] active:scale-95 transition-all">
-            Enregistrer les modifications
-          </button>
-          <button onClick={onLogout} className="w-full py-4 bg-red-50 dark:bg-red-900/10 text-red-500 rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-red-100 transition-colors">
-            <LogOut size={18} /> Se déconnecter
-          </button>
+          ))}
         </div>
       </div>
     </div>
   );
 };
 
-// --- AUTH SCREEN ---
+const TaskModal: React.FC<{ categories: Category[], onClose: () => void, onSubmit: (data: Omit<Task, 'id' | 'actualSeconds' | 'isCompleted'>) => void, onDelete?: () => void, taskToEdit?: Task, isDarkMode: boolean, onAddCategory: (n: string, c: string) => string, onRemoveCategory: (id: string) => void, selectedDate: Date }> = ({ categories, onClose, onSubmit, onDelete, taskToEdit, isDarkMode, onAddCategory, onRemoveCategory, selectedDate }) => {
+  const [title, setTitle] = useState(taskToEdit?.title || '');
+  const [categoryId, setCategoryId] = useState(taskToEdit?.categoryId || categories[0]?.id || '');
+  const [date, setDate] = useState(taskToEdit?.date || formatDate(selectedDate));
+  const [startTime, setStartTime] = useState(taskToEdit?.startTime || '09:00');
+  const [duration, setDuration] = useState(taskToEdit?.durationHours.toString() || '1');
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-[#0a0a0a] rounded-[2.5rem] p-8 max-w-md w-full flex flex-col gap-6 shadow-2xl">
+        <div className="flex justify-between items-center"><h2 className="text-2xl font-black text-slate-800 dark:text-white">{taskToEdit ? 'Modifier' : 'Ajouter'} une tâche</h2><button onClick={onClose} className="p-2 text-slate-400"><X /></button></div>
+        <div className="flex flex-col gap-4">
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Titre..." className="w-full bg-slate-50 dark:bg-white/5 p-4 rounded-2xl outline-none font-bold text-slate-800 dark:text-white focus:ring-2 ring-indigo-500" />
+          <div className="grid grid-cols-2 gap-4">
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl outline-none font-bold text-slate-800 dark:text-white" />
+            <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl outline-none font-bold text-slate-800 dark:text-white" />
+          </div>
+          <div className="flex items-center gap-4 bg-slate-50 dark:bg-white/5 p-4 rounded-2xl">
+            <span className="text-xs font-black uppercase text-slate-400">Durée (h)</span>
+            <input type="number" step="0.25" min="0.25" value={duration} onChange={e => setDuration(e.target.value)} className="bg-transparent outline-none font-black text-slate-800 dark:text-white w-full text-right" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {categories.map(cat => (
+              <button key={cat.id} onClick={() => setCategoryId(cat.id)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${categoryId === cat.id ? 'shadow-md scale-105' : 'opacity-40 hover:opacity-100'}`} style={{ backgroundColor: cat.color, color: 'white' }}>{cat.name}</button>
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-4 mt-4">
+          {onDelete && <button onClick={onDelete} className="flex-1 py-4 rounded-2xl bg-red-50 text-red-500 font-black hover:bg-red-100"><Trash2 className="mx-auto" /></button>}
+          <button onClick={() => title && onSubmit({ title, categoryId, date, startTime, durationHours: parseFloat(duration) })} className="flex-[3] py-4 rounded-2xl bg-indigo-600 text-white font-black shadow-lg shadow-indigo-200">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
-const AuthScreen: React.FC<{ 
-  onAuthSuccess: (u: UserProfile) => void, 
-  isDarkMode: boolean, 
-  onBack: () => void 
-}> = ({ onAuthSuccess, onBack }) => {
+const SettingsModal: React.FC<{ userName: string, timezone: string, onClose: () => void, onLogout: () => void, onSave: (n: string, t: string) => void, isDarkMode: boolean, onExport: () => void }> = ({ userName, timezone, onClose, onLogout, onSave, isDarkMode, onExport }) => {
+  const [name, setName] = useState(userName);
+  const [tz, setTz] = useState(timezone);
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-white dark:bg-[#0a0a0a] rounded-[2.5rem] p-8 max-w-sm w-full flex flex-col gap-8 shadow-2xl">
+        <h2 className="text-2xl font-black text-slate-800 dark:text-white">Paramètres</h2>
+        <div className="flex flex-col gap-4">
+           <div className="flex flex-col gap-1"><span className="text-[10px] font-black uppercase text-slate-400">Nom complet</span><input value={name} onChange={e => setName(e.target.value)} className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold dark:text-white" /></div>
+           <div className="flex flex-col gap-1"><span className="text-[10px] font-black uppercase text-slate-400">Fuseau horaire</span><select value={tz} onChange={e => setTz(e.target.value)} className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold dark:text-white"><option value="Europe/Paris">Europe/Paris</option><option value="UTC">UTC</option></select></div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <button onClick={() => onSave(name, tz)} className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-black">Enregistrer</button>
+          <button onClick={onExport} className="w-full py-4 rounded-2xl border-2 border-slate-100 dark:border-white/5 text-slate-600 dark:text-white font-black flex items-center justify-center gap-2">
+            <Download size={18} /> Télécharger backup
+          </button>
+          <button onClick={onLogout} className="w-full py-4 rounded-2xl text-red-500 font-black flex items-center justify-center gap-2"><LogOut size={18} /> Déconnexion</button>
+          <button onClick={onClose} className="w-full py-4 text-slate-400 font-bold">Fermer</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AuthScreen: React.FC<{ onAuthSuccess: (u: UserProfile) => void, isDarkMode: boolean, toggleDarkMode: () => void, onBack: () => void }> = ({ onAuthSuccess, isDarkMode, onBack }) => {
+  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [step, setStep] = useState<'email' | 'password' | 'signup'>('email');
-  const [error, setError] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [isChecking, setIsChecking] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
 
-  // LOGIQUE CRUCIALE : RECONNAISSANCE GLOBALE PAR EMAIL
-  const handleCheckEmail = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setError('');
-    const cleanEmail = email.toLowerCase().trim();
-    if (!cleanEmail || !cleanEmail.includes('@')) { setError("Veuillez entrer un email valide."); return; }
-    
-    setIsChecking(true);
-    try {
-      const emailKey = await getEmailKey(cleanEmail);
-      
-      // On tente de récupérer l'objet Cloud par son ID dérivé du mail
-      const response = await fetch(`${CLOUD_ENDPOINT}/${emailKey}`);
-      
-      if (response.ok) {
-        // Le compte existe GLOBALEMENT -> passage direct au mot de passe
-        setStep('password');
-      } else {
-        // Le compte n'existe pas encore -> inscription
-        setStep('signup');
-      }
-    } catch (err) {
-      console.warn("Check error", err);
-      // Fallback local si le réseau fail
-      const localUsers = JSON.parse(localStorage.getItem('focus_users_db') || '[]');
-      const user = localUsers.find((u: any) => u.email.toLowerCase() === cleanEmail);
-      setStep(user ? 'password' : 'signup');
-    } finally {
-      setIsChecking(false);
-    }
-  };
-
-  const handleAuth = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setError('');
-    const cleanEmail = email.toLowerCase().trim();
-    
-    try {
-      setIsChecking(true);
-      const emailKey = await getEmailKey(cleanEmail);
-
-      if (step === 'password') {
-        // CONNEXION
-        const response = await fetch(`${CLOUD_ENDPOINT}/${emailKey}`);
-        if (response.ok) {
-          const cloudObj = await response.json();
-          const user: UserProfile = cloudObj.data;
-          
-          if (user.password === password) {
-            // Mise en cache locale
-            const localUsers = JSON.parse(localStorage.getItem('focus_users_db') || '[]');
-            const idx = localUsers.findIndex((u: any) => u.email === cleanEmail);
-            if (idx === -1) localUsers.push(user); else localUsers[idx] = user;
-            localStorage.setItem('focus_users_db', JSON.stringify(localUsers));
-            
-            onAuthSuccess(user);
-          } else {
-            setError("Mot de passe incorrect.");
-          }
-        } else {
-          setError("Erreur de récupération du compte.");
-        }
-      } else {
-        // INSCRIPTION
-        if (!name || !password) { setError("Veuillez remplir tous les champs."); setIsChecking(false); return; }
-        
-        const newUser: UserProfile = { 
-          id: emailKey, 
-          name, 
-          email: cleanEmail, 
-          password, 
-          timezone: 'Europe/Paris',
-          data: {
-            tasks: [],
-            todos: [],
-            categories: INITIAL_CATEGORIES,
-            sleep: { enabled: true, bedtime: '23:30', wakeTime: '07:00' },
-            growth: { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 }
-          }
-        };
-
-        // Envoi au Cloud (Création)
-        // restful-api.dev : PUT sur un ID inexistant le crée
-        await fetch(`${CLOUD_ENDPOINT}/${emailKey}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: cleanEmail, data: newUser })
-        });
-
-        // Cache local
-        const localUsers = JSON.parse(localStorage.getItem('focus_users_db') || '[]');
-        localUsers.push(newUser);
-        localStorage.setItem('focus_users_db', JSON.stringify(localUsers));
-        
-        onAuthSuccess(newUser);
-      }
-    } catch (err) {
-      setError("Erreur réseau. Réessayez.");
-    } finally {
-      setIsChecking(false);
-    }
+  const handleSubmit = () => {
+    if (!email) return;
+    setIsVerifying(true);
+    // Simulation d'une vérification cloud
+    setTimeout(() => {
+      onAuthSuccess({ id: Math.random().toString(36).substr(2, 9), name: name || 'Aventurier', email, timezone: 'Europe/Paris' });
+      setIsVerifying(false);
+    }, 1200);
   };
 
   return (
     <div className="h-screen bg-slate-50 dark:bg-black flex items-center justify-center p-6">
-      <div className="bg-white dark:bg-[#0a0a0a] p-10 rounded-[4rem] shadow-2xl max-w-md w-full border border-gray-100 dark:border-white/5 flex flex-col gap-6 relative animate-in fade-in zoom-in duration-500">
-        <button onClick={() => step === 'email' ? onBack() : setStep('email')} className="absolute top-10 left-10 text-slate-400 hover:text-indigo-600 transition-colors"><ChevronLeft /></button>
-        
-        <div className="text-center space-y-2 pt-6">
-          <h2 className="text-3xl font-black text-slate-800 dark:text-white uppercase tracking-tight">
-            {step === 'email' ? 'Bienvenue' : step === 'password' ? 'Déverrouiller' : 'Votre Profil'}
-          </h2>
-          <p className="text-slate-400 text-sm font-medium">
-            {step === 'email' ? 'Connectez-vous pour retrouver vos données partout.' : step === 'password' ? 'Entrez votre mot de passe Cloud.' : "Finalisez votre inscription."}
-          </p>
+      <div className="bg-white dark:bg-[#0a0a0a] p-10 rounded-[3rem] shadow-2xl max-w-md w-full border border-gray-100 dark:border-white/5 flex flex-col gap-8 relative overflow-hidden">
+        <button onClick={onBack} className="absolute top-6 left-6 text-slate-400 hover:text-slate-800 dark:hover:text-white"><ChevronLeft /></button>
+        <div className="text-center">
+          <h2 className="text-3xl font-black text-slate-800 dark:text-white">{isLogin ? 'Bon retour !' : 'Rejoindre Focus'}</h2>
+          <p className="text-slate-400 text-sm mt-2">{isLogin ? 'Vos données vous attendent.' : 'Synchronisation cloud incluse.'}</p>
         </div>
-
-        <form onSubmit={step === 'email' ? handleCheckEmail : handleAuth} className="flex flex-col gap-5">
-          {error && (
-            <div className="text-red-500 text-[10px] font-black uppercase text-center bg-red-50 dark:bg-red-900/20 p-4 rounded-2xl border border-red-100 dark:border-red-500/20 flex items-center gap-2 justify-center">
-              <AlertCircle size={14} /> {error}
-            </div>
-          )}
-          
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">EMAIL</label>
-            <div className="relative">
-              <input 
-                value={email} 
-                onChange={e => setEmail(e.target.value)} 
-                type="email" 
-                disabled={step !== 'email' || isChecking}
-                placeholder="votre@email.com" 
-                className={`w-full p-4 rounded-[1.5rem] font-bold outline-none border border-transparent transition-all shadow-sm ${step === 'email' ? 'bg-slate-50 dark:bg-white/5 text-slate-900 dark:text-white focus:border-indigo-500' : 'bg-slate-100 dark:bg-white/10 text-slate-400'}`} 
-              />
-              {step !== 'email' && !isChecking && <button type="button" onClick={() => setStep('email')} className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-indigo-500 uppercase">Modifier</button>}
-            </div>
-          </div>
-
-          {step === 'signup' && (
-            <div className="flex flex-col gap-1.5 animate-in slide-in-from-top duration-300">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">PRÉNOM</label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Votre prénom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
-            </div>
-          )}
-
-          {step !== 'email' && (
-            <div className="flex flex-col gap-1.5 animate-in slide-in-from-top duration-300">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-4 tracking-widest">
-                MOT DE PASSE
-              </label>
-              <div className="relative">
-                <input value={password} onChange={e => setPassword(e.target.value)} type={showPassword ? "text" : "password"} placeholder="••••••••" className="w-full bg-slate-50 dark:bg-white/5 p-4 rounded-[1.5rem] font-bold text-slate-900 dark:text-white outline-none border border-transparent focus:border-indigo-500 transition-all shadow-sm" />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 transition-colors">
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </div>
-          )}
-
+        <div className="flex flex-col gap-4">
+          {!isLogin && <input value={name} onChange={e => setName(e.target.value)} placeholder="Prénom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold dark:text-white outline-none ring-indigo-500 focus:ring-2" />}
+          <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="Email (votre clé de synchro)" className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold dark:text-white outline-none ring-indigo-500 focus:ring-2" />
           <button 
-            type="submit" 
-            disabled={isChecking}
-            className="w-full py-5 rounded-[1.5rem] bg-indigo-600 text-white font-black shadow-[0_15px_35px_rgba(79,70,229,0.3)] hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest mt-2 flex items-center justify-center gap-2 disabled:opacity-50"
+            disabled={isVerifying}
+            onClick={handleSubmit} 
+            className="w-full py-5 rounded-2xl bg-indigo-600 text-white font-black shadow-xl shadow-indigo-200 mt-2 flex items-center justify-center gap-3 disabled:opacity-70"
           >
-            {isChecking ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : step === 'email' ? (
-              <>CONTINUER <ChevronRightIcon size={16} /></>
-            ) : step === 'password' ? (
-              <><Lock size={16} /> SE CONNECTER</>
-            ) : (
-              <><Check size={16} /> CRÉER MON COMPTE</>
-            )}
+            {isVerifying ? <RefreshCw className="animate-spin" size={18} /> : (isLogin ? 'Se connecter' : 'Créer un compte')}
           </button>
-        </form>
-
-        <div className="flex flex-col items-center gap-4 pt-2">
-          <div className="flex items-center gap-2 opacity-60">
-             <Cloud size={14} className="text-indigo-500" />
-             <p className="text-slate-400 text-[9px] font-bold uppercase tracking-widest text-center">
-               Synchronisation Cloud instantanée activée.
-             </p>
-          </div>
         </div>
+        <button onClick={() => setIsLogin(!isLogin)} className="text-indigo-600 font-black text-xs uppercase tracking-widest">{isLogin ? 'Créer un compte' : 'Déjà un compte ?'}</button>
       </div>
     </div>
   );
 };
 
-// --- CADRAN DE SOMMEIL ---
+const AddInput: React.FC<{ onAdd: (txt: string) => void, placeholder?: string, className?: string }> = ({ onAdd, placeholder, className }) => {
+  const [val, setVal] = useState('');
+  return (
+    <div className={`relative flex items-center group ${className}`}>
+      <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && val) { onAdd(val); setVal(''); } }} placeholder={placeholder} className="w-full bg-slate-100 dark:bg-white/5 rounded-xl px-3 h-full outline-none text-xs font-bold transition-all focus:ring-1 ring-indigo-400 dark:text-white" />
+      <button onClick={() => { if (val) { onAdd(val); setVal(''); } }} className="absolute right-2 opacity-0 group-hover:opacity-100 transition-opacity"><Plus size={14} className="text-indigo-500" /></button>
+    </div>
+  );
+};
 
-const SleepDial: React.FC<{ sleep: SleepSchedule, setSleep: (s: SleepSchedule) => void, isDarkMode: boolean }> = ({ sleep, setSleep, isDarkMode }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [dragging, setDragging] = useState<'bed' | 'wake' | null>(null);
+const SleepDial: React.FC<{ sleep: SleepSchedule, setSleep: (s: SleepSchedule | ((prev: SleepSchedule) => SleepSchedule)) => void, isDarkMode: boolean }> = ({ sleep, setSleep, isDarkMode }) => {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [isDragging, setIsDragging] = useState<'bed' | 'wake' | null>(null);
 
-  const getAngleFromEvent = (e: any) => {
-    if (!containerRef.current) return 0;
-    const rect = containerRef.current.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    let angle = Math.atan2(clientY - centerY, clientX - centerX) * (180 / Math.PI) + 90;
-    if (angle < 0) angle += 360;
-    return angle;
+  const getAngle = (clientX: number, clientY: number) => {
+    if (!svgRef.current) return 0;
+    const rect = svgRef.current.getBoundingClientRect();
+    const x = clientX - (rect.left + rect.width / 2);
+    const y = clientY - (rect.top + rect.height / 2);
+    return (Math.atan2(y, x) * 180 / Math.PI + 90 + 360) % 360;
   };
 
-  const handleMouseMove = useCallback((e: any) => {
-    if (!dragging) return;
-    const angle = getAngleFromEvent(e);
-    const totalMinutes = Math.round((angle / 360) * 1440);
-    const h = Math.floor(totalMinutes / 60) % 24;
-    const m = Math.floor((totalMinutes % 60) / 5) * 5;
+  const updateTime = useCallback((angle: number, type: 'bed' | 'wake') => {
+    const totalMinutes = Math.floor(angle * 4);
+    const h = Math.floor(totalMinutes / 60);
+    const m = Math.floor((totalMinutes % 60) / 10) * 10;
     const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-    if (dragging === 'bed') setSleep({ ...sleep, bedtime: timeStr });
-    else setSleep({ ...sleep, wakeTime: timeStr });
-  }, [dragging, sleep, setSleep]);
-
-  const handleMouseUp = useCallback(() => setDragging(null), []);
+    
+    setSleep(prev => ({
+      ...prev,
+      [type === 'bed' ? 'bedtime' : 'wakeTime']: timeStr
+    }));
+  }, [setSleep]);
 
   useEffect(() => {
-    if (dragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      window.addEventListener('touchmove', handleMouseMove);
-      window.addEventListener('touchend', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('touchmove', handleMouseMove);
-      window.removeEventListener('touchend', handleMouseUp);
+    if (!isDragging) return;
+
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      updateTime(getAngle(clientX, clientY), isDragging);
     };
-  }, [dragging, handleMouseMove, handleMouseUp]);
+
+    const onUp = () => setIsDragging(null);
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove);
+    window.addEventListener('touchend', onUp);
+
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+  }, [isDragging, updateTime]);
 
   const [bH, bM] = sleep.bedtime.split(':').map(Number);
   const [wH, wM] = sleep.wakeTime.split(':').map(Number);
   const startAngle = (bH * 60 + bM) / 4; 
   const endAngle = (wH * 60 + wM) / 4;
+  
   let diff = endAngle - startAngle;
   if (diff < 0) diff += 360;
 
-  const handlePos = (angle: number) => {
-    const rad = (angle - 90) * (Math.PI / 180);
-    return { x: 50 + 45 * Math.cos(rad), y: 50 + 45 * Math.sin(rad) };
-  };
-
-  const bedPos = handlePos(startAngle);
-  const wakePos = handlePos(endAngle);
+  const endX = 50 + 45 * Math.sin(diff * Math.PI / 180);
+  const endY = 50 - 45 * Math.cos(diff * Math.PI / 180);
 
   return (
-    <div ref={containerRef} className="w-48 h-48 rounded-full border-[12px] border-slate-50 dark:border-white/5 relative flex items-center justify-center select-none">
-      <svg viewBox="0 0 100 100" className="absolute inset-0">
+    <div className="w-32 h-32 rounded-full border-[10px] border-slate-50 dark:border-white/5 relative flex items-center justify-center select-none shadow-inner">
+      <svg 
+        ref={svgRef}
+        viewBox="0 0 100 100" 
+        className="absolute inset-0 -rotate-90 overflow-visible"
+      >
         <circle cx="50" cy="50" r="45" fill="none" stroke={isDarkMode ? 'rgba(255,255,255,0.05)' : '#f8fafc'} strokeWidth="10" />
-        <path d={`M ${bedPos.x} ${bedPos.y} A 45 45 0 ${diff > 180 ? 1 : 0} 1 ${wakePos.x} ${wakePos.y}`} fill="none" stroke="#6366f1" strokeWidth="10" strokeLinecap="round" />
-        <g transform={`translate(${bedPos.x - 4}, ${bedPos.y - 4})`} onMouseDown={() => setDragging('bed')} onTouchStart={() => setDragging('bed')} className="cursor-pointer">
-           <circle cx="4" cy="4" r="7" fill="white" stroke="#6366f1" strokeWidth="2" />
-           <Moon size={8} className="text-indigo-600 absolute translate-x-[2px] translate-y-[2px]" />
-        </g>
-        <circle cx={wakePos.x} cy={wakePos.y} r="6" fill="white" stroke="#6366f1" strokeWidth="2" className="cursor-pointer shadow-lg" onMouseDown={() => setDragging('wake')} onTouchStart={() => setDragging('wake')} />
+        
+        <path 
+          d={`M 50,5 A 45,45 0 ${diff > 180 ? 1 : 0} 1 ${endX} ${endY}`}
+          fill="none" 
+          stroke="#6366f1" 
+          strokeWidth="10" 
+          strokeLinecap="round"
+          transform={`rotate(${startAngle}, 50, 50)`}
+          className="transition-all duration-100" 
+        />
+        
+        <circle 
+          cx={50 + 45 * Math.cos((startAngle - 90) * Math.PI / 180)} 
+          cy={50 + 45 * Math.sin((startAngle - 90) * Math.PI / 180)} 
+          r="6" 
+          fill="#818cf8" 
+          stroke="white"
+          strokeWidth="2"
+          className="cursor-grab active:cursor-grabbing shadow-lg"
+          onMouseDown={(e) => { e.stopPropagation(); setIsDragging('bed'); }}
+          onTouchStart={(e) => { e.stopPropagation(); setIsDragging('bed'); }}
+        />
+        <circle 
+          cx={50 + 45 * Math.cos((endAngle - 90) * Math.PI / 180)} 
+          cy={50 + 45 * Math.sin((endAngle - 90) * Math.PI / 180)} 
+          r="6" 
+          fill="#4f46e5" 
+          stroke="white"
+          strokeWidth="2"
+          className="cursor-grab active:cursor-grabbing shadow-lg"
+          onMouseDown={(e) => { e.stopPropagation(); setIsDragging('wake'); }}
+          onTouchStart={(e) => { e.stopPropagation(); setIsDragging('wake'); }}
+        />
       </svg>
-      <div className="flex flex-col items-center">
-         <div className="flex items-baseline"><span className="text-4xl font-black text-slate-800 dark:text-white">{Math.floor((diff / 360) * 24)}</span><span className="text-xs font-bold text-slate-400 ml-0.5">h</span></div>
-         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{Math.round(((diff / 360) * 24 % 1) * 60)}min</span>
-      </div>
-      <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-white shadow-md border dark:border-white/10 flex items-center justify-center translate-x-3 -translate-y-3">
-         <Bell size={12} className="text-amber-500" />
-      </div>
-    </div>
-  );
-};
-
-const GrowthSelectionModal: React.FC<{ onSelect: (type: GrowthType) => void, isDarkMode: boolean }> = ({ onSelect }) => {
-  const options: { type: GrowthType, icon: React.ReactNode, name: string, color: string }[] = [
-    { type: 'fleur', icon: <Flower2 size={24} />, name: 'La Fleur', color: 'text-pink-500' },
-    { type: 'arbre', icon: <TreePine size={24} />, name: "L'Arbre", color: 'text-green-500' },
-    { type: 'animal', icon: <Bird size={24} />, name: "L'Oiseau", color: 'text-blue-500' },
-    { type: 'humain', icon: <Baby size={24} />, name: "L'Humain", color: 'text-orange-500' },
-  ];
-  return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-500">
-      <div className="bg-white dark:bg-[#0a0a0a] w-full max-w-xl rounded-[4rem] p-10 shadow-2xl border border-white/10 flex flex-col gap-8 items-center text-center animate-in zoom-in-95 duration-500">
-        <h2 className="text-3xl font-black text-slate-800 dark:text-white uppercase tracking-tight">Choisissez votre compagnon</h2>
-        <div className="grid grid-cols-2 gap-4 w-full">
-           {options.map(opt => (
-             <button key={opt.type} onClick={() => onSelect(opt.type)} className="bg-slate-50 dark:bg-white/5 p-6 rounded-[2.5rem] flex flex-col items-center gap-3 border border-transparent hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all group">
-                <div className={`w-14 h-14 rounded-[1.5rem] bg-white dark:bg-white/10 flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform ${opt.color}`}>{opt.icon}</div>
-                <span className="font-black text-slate-800 dark:text-white uppercase tracking-widest text-[10px]">{opt.name}</span>
-             </button>
-           ))}
-        </div>
+      <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-white dark:bg-[#1a1a1a] shadow-md border dark:border-white/10 flex items-center justify-center translate-x-3 -translate-y-3 pointer-events-none">
+        <Bell size={12} className="text-amber-500" />
       </div>
     </div>
   );
