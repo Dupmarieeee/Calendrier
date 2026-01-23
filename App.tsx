@@ -67,7 +67,9 @@ import {
   CloudCheck,
   Download,
   Upload,
-  RefreshCw
+  RefreshCw,
+  Copy,
+  Key
 } from 'lucide-react';
 import { Category, Task, TodoItem, SleepSchedule, GrowthType, GrowthState } from './types';
 import { INITIAL_CATEGORIES, TIME_SLOTS, DAYS_FR } from './constants';
@@ -84,11 +86,26 @@ interface UserProfile {
   email: string;
   timezone: string;
   password?: string;
+  syncCode?: string;
 }
 
 const GROWTH_THRESHOLDS = [0, 50, 150, 400];
 
-// Helper: Format seconds to HH:MM:SS or MM:SS
+// Helpers pour la synchronisation (Compression Base64)
+const generateSyncCode = (data: any) => {
+  const json = JSON.stringify(data);
+  return btoa(encodeURIComponent(json));
+};
+
+const parseSyncCode = (code: string) => {
+  try {
+    const json = decodeURIComponent(atob(code));
+    return JSON.parse(json);
+  } catch (e) {
+    return null;
+  }
+};
+
 const formatSeconds = (totalSeconds: number) => {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
@@ -97,7 +114,6 @@ const formatSeconds = (totalSeconds: number) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
-// Helper: Format decimal hours to "1h 30min"
 const formatTimeDisplay = (hours: number) => {
   const h = Math.floor(hours);
   const m = Math.round((hours - h) * 60);
@@ -143,12 +159,8 @@ const App: React.FC = () => {
       const user = JSON.parse(savedUser);
       setCurrentUser(user);
       setAppView('dashboard');
-      // Simulate Cloud Fetch
       setIsSyncing(true);
-      setTimeout(() => {
-        setIsSyncing(false);
-        setLastSynced(new Date());
-      }, 1500);
+      setTimeout(() => { setIsSyncing(false); setLastSynced(new Date()); }, 1000);
     }
     setIsAuthLoading(false);
   }, []);
@@ -158,7 +170,7 @@ const App: React.FC = () => {
     return () => { if (clockRef.current) clearInterval(clockRef.current); };
   }, []);
 
-  // Load Data
+  // Load Data by Email
   useEffect(() => {
     if (!currentUser) return;
     const prefix = `focus_${currentUser.email}_`;
@@ -176,7 +188,7 @@ const App: React.FC = () => {
     else setIsGrowthSelectOpen(true);
   }, [currentUser]);
 
-  // Save Data with Sync Simulation
+  // Sync / Save Data
   useEffect(() => {
     if (!currentUser) return;
     const prefix = `focus_${currentUser.email}_`;
@@ -186,14 +198,18 @@ const App: React.FC = () => {
     localStorage.setItem(`${prefix}sleep`, JSON.stringify(sleep));
     localStorage.setItem(`${prefix}growth`, JSON.stringify(growth));
 
-    // Simulated Auto-Sync on change
     const syncTimeout = setTimeout(() => {
       setIsSyncing(true);
+      const syncCode = generateSyncCode({ tasks, todos, categories, sleep, growth, user: currentUser });
+      const updatedUser = { ...currentUser, syncCode };
+      setCurrentUser(updatedUser);
+      localStorage.setItem('focus_current_user', JSON.stringify(updatedUser));
+      
       setTimeout(() => {
         setIsSyncing(false);
         setLastSynced(new Date());
-      }, 800);
-    }, 2000);
+      }, 500);
+    }, 1500);
 
     return () => clearTimeout(syncTimeout);
   }, [tasks, todos, categories, sleep, growth, currentUser]);
@@ -259,7 +275,7 @@ const App: React.FC = () => {
 
   const weekDates = getWeekDates(currentDate);
   const displayDates = viewMode === 'week' ? weekDates : [currentDate];
-  const { label: weekLabel, month: weekMonth } = getDisplayWeek(currentDate);
+  const { label: weekLabel } = getDisplayWeek(currentDate);
   const currentWeekId = getWeekId(currentDate);
   const todayStr = formatDate(new Date());
   
@@ -268,7 +284,6 @@ const App: React.FC = () => {
     return { ...cat, actualHours: filteredTasks.reduce((acc, t) => acc + (t.actualSeconds / 3600), 0), plannedHours: filteredTasks.reduce((acc, t) => acc + t.durationHours, 0) };
   });
 
-  const totalWeeklyActual = weeklySummary.reduce((acc, s) => acc + s.actualHours, 0);
   const maxWeeklyHours = Math.max(...weeklySummary.map(s => Math.max(s.actualHours, s.plannedHours)), 1);
   const todaySummary = categories.map(cat => {
     const filtered = tasks.filter(t => t.date === todayStr && t.categoryId === cat.id);
@@ -305,60 +320,42 @@ const App: React.FC = () => {
     return layout;
   }, []);
 
-  const handleExportData = () => {
-    const data = {
-      tasks, todos, categories, sleep, growth,
-      version: "1.0",
-      exportedAt: new Date().toISOString()
-    };
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `focus_calendar_backup_${currentUser?.name.replace(/\s+/g, '_')}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target?.result as string);
-        if (data.tasks) setTasks(data.tasks);
-        if (data.todos) setTodos(data.todos);
-        if (data.categories) setCategories(data.categories);
-        if (data.sleep) setSleep(data.sleep);
-        if (data.growth) setGrowth(data.growth);
-        alert('Agenda synchronisé avec succès !');
-      } catch (err) {
-        alert('Format de fichier invalide.');
-      }
-    };
-    reader.readAsText(file);
+  const copySyncCode = () => {
+    if (currentUser?.syncCode) {
+      navigator.clipboard.writeText(currentUser.syncCode);
+      alert('Code de synchronisation copié ! Conservez-le pour vos autres appareils.');
+    }
   };
 
   if (isAuthLoading) return <div className="flex items-center justify-center h-screen bg-slate-50 dark:bg-black"><div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>;
   if (appView === 'landing') return <LandingPage onStart={() => setAppView('auth')} onLogin={() => setAppView('auth')} />;
-  if (appView === 'auth' && !currentUser) return <AuthScreen onAuthSuccess={user => { setCurrentUser(user); localStorage.setItem('focus_current_user', JSON.stringify(user)); setAppView('dashboard'); }} isDarkMode={isDarkMode} toggleDarkMode={() => setIsDarkMode(!isDarkMode)} onBack={() => setAppView('landing')} />;
+  if (appView === 'auth' && !currentUser) return <AuthScreen onAuthSuccess={user => { setCurrentUser(user); localStorage.setItem('focus_current_user', JSON.stringify(user)); setAppView('dashboard'); }} isDarkMode={isDarkMode} />;
 
   return (
     <div className={`${isDarkMode ? 'dark' : ''} h-screen bg-[#f1f2f6] dark:bg-black p-4 lg:p-6 overflow-hidden flex`}>
       <aside className="w-80 flex flex-col gap-6 pr-6 border-r border-gray-200 dark:border-white/10 overflow-y-auto custom-scrollbar">
         <header className="flex flex-col gap-1">
-          <h1 className="text-2xl font-black text-slate-800 dark:text-white leading-tight">Bonjour {currentUser?.name} 👋</h1>
+          <h1 className="text-2xl font-black text-slate-800 dark:text-white leading-tight truncate">Bonjour {currentUser?.name} 👋</h1>
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              {isSyncing ? 'Synchronisation...' : `En ligne - ${lastSynced ? format(lastSynced, 'HH:mm') : ''}`}
+              {isSyncing ? 'Synchronisation Cloud...' : `En ligne - ${lastSynced ? format(lastSynced, 'HH:mm') : ''}`}
             </span>
           </div>
         </header>
 
         <GrowthWidget growth={growth} dailyPoints={dailyPoints} isDarkMode={isDarkMode} onSelect={() => setIsGrowthSelectOpen(true)} />
         
+        {/* Mon Cloud Widget */}
+        <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-[2rem] p-5 shadow-lg flex flex-col gap-3 group overflow-hidden relative">
+           <Cloud className="absolute -right-2 -top-2 opacity-10 text-white group-hover:scale-110 transition-transform" size={80} />
+           <h3 className="text-white font-black text-[10px] uppercase tracking-widest flex items-center gap-2"><Key size={14} /> Mon Cloud Focus</h3>
+           <p className="text-indigo-100 text-[10px] font-medium leading-relaxed">Utilisez votre code pour retrouver cet agenda sur n'importe quel ordinateur ou session privée.</p>
+           <button onClick={copySyncCode} className="w-full bg-white/20 hover:bg-white/30 backdrop-blur-md py-2.5 rounded-xl text-white text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2">
+             <Copy size={12} /> Copier mon code
+           </button>
+        </div>
+
         <section className="bg-white dark:bg-[#0a0a0a] rounded-[2.5rem] p-6 shadow-sm border border-gray-100 dark:border-white/10 flex flex-col gap-6">
           <h3 className="text-slate-800 dark:text-white font-black text-[10px] tracking-widest flex items-center gap-2"><Moon size={16} className="text-indigo-500" /> Sommeil</h3>
           <div className="grid grid-cols-2 gap-4">
@@ -412,24 +409,6 @@ const App: React.FC = () => {
               ))}
            </div>
         </section>
-
-        <section className="bg-white dark:bg-[#0a0a0a] rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-white/10">
-          <h3 className="text-slate-700 dark:text-white font-bold mb-4">To-do du jour</h3>
-          <div className="flex flex-col gap-4">
-            {categories.map(cat => (
-              <div key={cat.id} className="flex flex-col gap-1">
-                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-lg inline-block w-fit" style={{ backgroundColor: isDarkMode ? `${cat.color}30` : cat.lightColor, color: isDarkMode ? 'white' : cat.color }}>{cat.name}</span>
-                {todos.filter(t => t.type === 'daily' && t.date === todayStr && t.text.includes(`[${cat.id}]`)).map(todo => (
-                  <div key={todo.id} onClick={() => setTodos(todos.map(t => t.id === todo.id ? { ...t, completed: !t.completed } : t))} className="flex items-center gap-2 cursor-pointer group">
-                    <div className={`w-4 h-4 rounded border transition-colors ${todo.completed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 dark:border-white/10'}`}>{todo.completed && <CheckCircle2 size={12} />}</div>
-                    <span className={`text-xs ${todo.completed ? 'text-slate-400 line-through' : 'text-slate-600 dark:text-white'}`}>{todo.text.replace(`[${cat.id}]`, '').trim()}</span>
-                  </div>
-                ))}
-                <AddInput onAdd={txt => setTodos([...todos, { id: Math.random().toString(36).substr(2, 9), text: `[${cat.id}] ${txt}`, completed: false, type: 'daily', date: todayStr }])} placeholder="Ajouter..." className="text-[10px] h-7" />
-              </div>
-            ))}
-          </div>
-        </section>
       </aside>
 
       <main className="flex-1 flex flex-col gap-6 ml-6 overflow-hidden">
@@ -443,23 +422,6 @@ const App: React.FC = () => {
             <button onClick={() => setCurrentDate(viewMode === 'week' ? addWeeks(currentDate, 1) : addDays(currentDate, 1))} className="p-2 text-slate-400"><ChevronRight /></button>
           </div>
           <div className="flex items-center gap-3">
-            <div className="relative group">
-              <button className={`p-3 bg-white dark:bg-white/10 rounded-2xl border border-gray-100 dark:border-white/10 ${isSyncing ? 'text-indigo-500' : 'text-slate-400'}`}>
-                {isSyncing ? <RefreshCw className="animate-spin" /> : <CloudCheck className="text-emerald-500" />}
-              </button>
-              <div className="absolute right-0 top-full mt-2 hidden group-hover:block bg-white dark:bg-slate-900 shadow-xl rounded-xl p-3 border dark:border-white/10 z-50 min-w-[200px]">
-                <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Synchronisation Cloud</p>
-                <div className="flex flex-col gap-2">
-                   <button onClick={handleExportData} className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-white hover:text-indigo-500 transition-colors">
-                     <Download size={14} /> Exporter mon Agenda
-                   </button>
-                   <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-white hover:text-indigo-500 transition-colors cursor-pointer">
-                     <Upload size={14} /> Importer un Agenda
-                     <input type="file" accept=".json" onChange={handleImportData} className="hidden" />
-                   </label>
-                </div>
-              </div>
-            </div>
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-3 bg-white dark:bg-white/10 rounded-2xl border border-gray-100 dark:border-white/10">{isDarkMode ? <Sun className="text-amber-400" /> : <Moon className="text-slate-600" />}</button>
             <button onClick={() => { setEditingTask(null); setIsModalOpen(true); }} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-xl shadow-indigo-200 dark:shadow-none"><Plus /></button>
             <button onClick={() => setIsSettingsModalOpen(true)} className="p-3 bg-white dark:bg-white/10 rounded-2xl border border-gray-100 dark:border-white/10 text-slate-400"><Settings /></button>
@@ -527,7 +489,7 @@ const App: React.FC = () => {
       </main>
 
       {isModalOpen && <TaskModal categories={categories} onClose={() => { setIsModalOpen(false); setEditingTask(null); }} onSubmit={data => { if (editingTask) setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, ...data } : t)); else setTasks([...tasks, { ...data, id: Math.random().toString(36).substr(2, 9), actualSeconds: 0, isCompleted: false }]); setIsModalOpen(false); }} onDelete={editingTask ? () => { setTasks(tasks.filter(t => t.id !== editingTask.id)); setIsModalOpen(false); } : undefined} taskToEdit={editingTask || undefined} isDarkMode={isDarkMode} onAddCategory={(name, color) => { const id = `cat-${Math.random().toString(36).substr(2, 9)}`; setCategories([...categories, { id, name, color, lightColor: `${color}20` }]); return id; }} onRemoveCategory={id => setCategories(categories.filter(c => c.id !== id))} selectedDate={currentDate} />}
-      {isSettingsModalOpen && <SettingsModal userName={currentUser?.name || ''} timezone={currentUser?.timezone || ''} onClose={() => setIsSettingsModalOpen(false)} onLogout={() => { setCurrentUser(null); localStorage.removeItem('focus_current_user'); setAppView('landing'); }} onSave={(n, t) => { if (currentUser) { const u = { ...currentUser, name: n, timezone: t }; setCurrentUser(u); localStorage.setItem('focus_current_user', JSON.stringify(u)); } setIsSettingsModalOpen(false); }} isDarkMode={isDarkMode} onExport={handleExportData} />}
+      {isSettingsModalOpen && <SettingsModal userName={currentUser?.name || ''} timezone={currentUser?.timezone || ''} onClose={() => setIsSettingsModalOpen(false)} onLogout={() => { setCurrentUser(null); localStorage.removeItem('focus_current_user'); setAppView('landing'); }} onSave={(n, t) => { if (currentUser) { const u = { ...currentUser, name: n, timezone: t }; setCurrentUser(u); localStorage.setItem('focus_current_user', JSON.stringify(u)); } setIsSettingsModalOpen(false); }} isDarkMode={isDarkMode} onCopySync={copySyncCode} />}
       {isGrowthSelectOpen && <GrowthSelectionModal onSelect={type => { setGrowth(prev => ({ ...prev, type })); setIsGrowthSelectOpen(false); }} isDarkMode={isDarkMode} />}
     </div>
   );
@@ -604,7 +566,7 @@ const TaskModal: React.FC<{ categories: Category[], onClose: () => void, onSubmi
   );
 };
 
-const SettingsModal: React.FC<{ userName: string, timezone: string, onClose: () => void, onLogout: () => void, onSave: (n: string, t: string) => void, isDarkMode: boolean, onExport: () => void }> = ({ userName, timezone, onClose, onLogout, onSave, isDarkMode, onExport }) => {
+const SettingsModal: React.FC<{ userName: string, timezone: string, onClose: () => void, onLogout: () => void, onSave: (n: string, t: string) => void, isDarkMode: boolean, onCopySync: () => void }> = ({ userName, timezone, onClose, onLogout, onSave, isDarkMode, onCopySync }) => {
   const [name, setName] = useState(userName);
   const [tz, setTz] = useState(timezone);
   return (
@@ -617,8 +579,8 @@ const SettingsModal: React.FC<{ userName: string, timezone: string, onClose: () 
         </div>
         <div className="flex flex-col gap-2">
           <button onClick={() => onSave(name, tz)} className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-black">Enregistrer</button>
-          <button onClick={onExport} className="w-full py-4 rounded-2xl border-2 border-slate-100 dark:border-white/5 text-slate-600 dark:text-white font-black flex items-center justify-center gap-2">
-            <Download size={18} /> Télécharger backup
+          <button onClick={onCopySync} className="w-full py-4 rounded-2xl border-2 border-indigo-100 dark:border-white/5 text-indigo-600 dark:text-white font-black flex items-center justify-center gap-2 hover:bg-indigo-50 transition-colors">
+            <Copy size={18} /> Copier code de synchro
           </button>
           <button onClick={onLogout} className="w-full py-4 rounded-2xl text-red-500 font-black flex items-center justify-center gap-2"><LogOut size={18} /> Déconnexion</button>
           <button onClick={onClose} className="w-full py-4 text-slate-400 font-bold">Fermer</button>
@@ -628,42 +590,106 @@ const SettingsModal: React.FC<{ userName: string, timezone: string, onClose: () 
   );
 };
 
-const AuthScreen: React.FC<{ onAuthSuccess: (u: UserProfile) => void, isDarkMode: boolean, toggleDarkMode: () => void, onBack: () => void }> = ({ onAuthSuccess, isDarkMode, onBack }) => {
+const AuthScreen: React.FC<{ onAuthSuccess: (u: UserProfile) => void, isDarkMode: boolean }> = ({ onAuthSuccess }) => {
   const [isLogin, setIsLogin] = useState(true);
+  const [isSyncImport, setIsSyncImport] = useState(false);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [syncCode, setSyncCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
 
-  const handleSubmit = () => {
+  const handleSyncImport = () => {
+    const data = parseSyncCode(syncCode);
+    if (data) {
+      // Restore logic
+      const prefix = `focus_${data.user.email}_`;
+      localStorage.setItem(`${prefix}tasks`, JSON.stringify(data.tasks));
+      localStorage.setItem(`${prefix}todos`, JSON.stringify(data.todos));
+      localStorage.setItem(`${prefix}categories`, JSON.stringify(data.categories));
+      localStorage.setItem(`${prefix}sleep`, JSON.stringify(data.sleep));
+      localStorage.setItem(`${prefix}growth`, JSON.stringify(data.growth));
+      
+      onAuthSuccess(data.user);
+      alert('Agenda synchronisé avec succès !');
+    } else {
+      alert('Code de synchronisation invalide.');
+    }
+  };
+
+  const handleStandardAuth = () => {
     if (!email) return;
     setIsVerifying(true);
-    // Simulation d'une vérification cloud
+    
+    // Simulation cloud registry lookup
     setTimeout(() => {
-      onAuthSuccess({ id: Math.random().toString(36).substr(2, 9), name: name || 'Aventurier', email, timezone: 'Europe/Paris' });
+      const savedRegistry = localStorage.getItem(`focus_registry_${email}`);
+      if (savedRegistry) {
+        // Known user on this machine
+        onAuthSuccess(JSON.parse(savedRegistry));
+      } else {
+        // New user or new machine
+        const newUser = { id: Math.random().toString(36).substr(2, 9), name: name || 'Aventurier', email, timezone: 'Europe/Paris' };
+        localStorage.setItem(`focus_registry_${email}`, JSON.stringify(newUser));
+        onAuthSuccess(newUser);
+      }
       setIsVerifying(false);
-    }, 1200);
+    }, 1000);
   };
 
   return (
     <div className="h-screen bg-slate-50 dark:bg-black flex items-center justify-center p-6">
-      <div className="bg-white dark:bg-[#0a0a0a] p-10 rounded-[3rem] shadow-2xl max-w-md w-full border border-gray-100 dark:border-white/5 flex flex-col gap-8 relative overflow-hidden">
-        <button onClick={onBack} className="absolute top-6 left-6 text-slate-400 hover:text-slate-800 dark:hover:text-white"><ChevronLeft /></button>
+      <div className="bg-white dark:bg-[#0a0a0a] p-10 rounded-[3rem] shadow-2xl max-w-md w-full border border-gray-100 dark:border-white/5 flex flex-col gap-8 relative overflow-hidden transition-all duration-500">
+        
         <div className="text-center">
-          <h2 className="text-3xl font-black text-slate-800 dark:text-white">{isLogin ? 'Bon retour !' : 'Rejoindre Focus'}</h2>
-          <p className="text-slate-400 text-sm mt-2">{isLogin ? 'Vos données vous attendent.' : 'Synchronisation cloud incluse.'}</p>
+          <h2 className="text-3xl font-black text-slate-800 dark:text-white">
+            {isSyncImport ? 'Synchronisation Cloud' : (isLogin ? 'Bon retour !' : 'Rejoindre Focus')}
+          </h2>
+          <p className="text-slate-400 text-sm mt-2">
+            {isSyncImport ? 'Collez votre code de secours pour restaurer.' : 'Vos données vous suivent partout.'}
+          </p>
         </div>
+
         <div className="flex flex-col gap-4">
-          {!isLogin && <input value={name} onChange={e => setName(e.target.value)} placeholder="Prénom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold dark:text-white outline-none ring-indigo-500 focus:ring-2" />}
-          <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="Email (votre clé de synchro)" className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold dark:text-white outline-none ring-indigo-500 focus:ring-2" />
-          <button 
-            disabled={isVerifying}
-            onClick={handleSubmit} 
-            className="w-full py-5 rounded-2xl bg-indigo-600 text-white font-black shadow-xl shadow-indigo-200 mt-2 flex items-center justify-center gap-3 disabled:opacity-70"
-          >
-            {isVerifying ? <RefreshCw className="animate-spin" size={18} /> : (isLogin ? 'Se connecter' : 'Créer un compte')}
+          {isSyncImport ? (
+            <>
+              <textarea 
+                value={syncCode} 
+                onChange={e => setSyncCode(e.target.value)} 
+                placeholder="Collez votre clé Focus ici..." 
+                className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold dark:text-white outline-none ring-indigo-500 focus:ring-2 h-32 resize-none text-[10px]"
+              />
+              <button 
+                onClick={handleSyncImport}
+                className="w-full py-5 rounded-2xl bg-indigo-600 text-white font-black shadow-xl shadow-indigo-200 flex items-center justify-center gap-3"
+              >
+                Restaurer l'Agenda
+              </button>
+            </>
+          ) : (
+            <>
+              {!isLogin && <input value={name} onChange={e => setName(e.target.value)} placeholder="Prénom" className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold dark:text-white outline-none ring-indigo-500 focus:ring-2" />}
+              <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="Email (Unique)" className="bg-slate-50 dark:bg-white/5 p-4 rounded-2xl font-bold dark:text-white outline-none ring-indigo-500 focus:ring-2" />
+              <button 
+                disabled={isVerifying}
+                onClick={handleStandardAuth} 
+                className="w-full py-5 rounded-2xl bg-indigo-600 text-white font-black shadow-xl shadow-indigo-200 mt-2 flex items-center justify-center gap-3 disabled:opacity-70"
+              >
+                {isVerifying ? <RefreshCw className="animate-spin" size={18} /> : (isLogin ? 'Se connecter' : 'Créer un compte')}
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-4 text-center">
+          {!isSyncImport && (
+            <button onClick={() => setIsLogin(!isLogin)} className="text-indigo-600 font-black text-xs uppercase tracking-widest">
+              {isLogin ? 'Créer un compte' : 'Déjà un compte ?'}
+            </button>
+          )}
+          <button onClick={() => setIsSyncImport(!isSyncImport)} className="text-slate-400 font-black text-[9px] uppercase tracking-widest border-t border-slate-100 dark:border-white/5 pt-4 flex items-center justify-center gap-2">
+            {isSyncImport ? 'Retour à la connexion' : <><RefreshCw size={10} /> Importer via un code</>}
           </button>
         </div>
-        <button onClick={() => setIsLogin(!isLogin)} className="text-indigo-600 font-black text-xs uppercase tracking-widest">{isLogin ? 'Créer un compte' : 'Déjà un compte ?'}</button>
       </div>
     </div>
   );
