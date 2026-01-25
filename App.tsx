@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
   format, 
@@ -15,12 +14,12 @@ import {
   eachDayOfInterval, 
   isSameMonth,
   addMonths, 
-  subMonths,
-  addYears,
-  subYears,
-  differenceInMinutes,
-  parse,
-  isAfter,
+  subMonths, 
+  addYears, 
+  subYears, 
+  differenceInMinutes, 
+  parse, 
+  isAfter, 
   startOfDay
 } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -30,46 +29,47 @@ import {
   Plus, 
   CheckCircle2, 
   Pause, 
-  Play,
-  Settings,
-  X,
-  Palette,
-  Trash2,
-  LayoutGrid,
-  ChevronRight as ChevronRightIcon,
-  BarChart3,
-  TrendingUp,
-  Clock,
-  Calendar as CalendarIcon,
-  Timer,
-  Trophy,
-  BarChart,
-  User,
-  Globe,
-  CalendarDays,
-  ChevronsLeft,
-  ChevronsRight,
-  Moon,
-  Bell,
-  Lock,
-  Mail,
-  LogOut,
-  ArrowRight,
-  Sun,
-  Sprout,
-  Flower2,
-  TreePine,
-  Bird,
-  Sparkles,
-  Zap,
-  Baby,
-  Cloud,
-  CloudCheck,
-  Download,
-  Upload,
-  RefreshCw,
-  Copy,
-  Key
+  Play, 
+  Settings, 
+  X, 
+  Palette, 
+  Trash2, 
+  LayoutGrid, 
+  ChevronRight as ChevronRightIcon, 
+  BarChart3, 
+  TrendingUp, 
+  Clock, 
+  Calendar as CalendarIcon, 
+  Timer, 
+  Trophy, 
+  BarChart, 
+  User, 
+  Globe, 
+  CalendarDays, 
+  ChevronsLeft, 
+  ChevronsRight, 
+  Moon, 
+  Bell, 
+  Lock, 
+  Mail, 
+  LogOut, 
+  ArrowRight, 
+  Sun, 
+  Sprout, 
+  Flower2, 
+  TreePine, 
+  Bird, 
+  Sparkles, 
+  Zap, 
+  Baby, 
+  Cloud, 
+  CloudCheck, 
+  Download, 
+  Upload, 
+  RefreshCw, 
+  Copy, 
+  Key,
+  WifiOff
 } from 'lucide-react';
 import { Category, Task, TodoItem, SleepSchedule, GrowthType, GrowthState } from './types';
 import { INITIAL_CATEGORIES, TIME_SLOTS, DAYS_FR } from './constants';
@@ -77,8 +77,12 @@ import { getWeekDates, formatDate, getDisplayWeek, getWeekId } from './utils/dat
 import { FlowerGrowth, TreeGrowth, BirdGrowth, BabyGrowth } from './GrowthVisuals';
 import LandingPage from './LandingPage';
 
-const HOUR_HEIGHT = 120; 
-const MIN_TASK_HEIGHT = 28; 
+const HOUR_HEIGHT = 60; 
+const MIN_TASK_HEIGHT = 26; 
+
+// URL de l'API : Utilise la variable d'environnement VITE_API_URL pour le cloud, ou localhost par défaut
+// Fix: Cast import.meta to any to resolve TS error: Property 'env' does not exist on type 'ImportMeta'
+const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000';
 
 interface UserProfile {
   id: string;
@@ -90,21 +94,6 @@ interface UserProfile {
 }
 
 const GROWTH_THRESHOLDS = [0, 50, 150, 400];
-
-// Helpers pour la synchronisation (Compression Base64)
-const generateSyncCode = (data: any) => {
-  const json = JSON.stringify(data);
-  return btoa(encodeURIComponent(json));
-};
-
-const parseSyncCode = (code: string) => {
-  try {
-    const json = decodeURIComponent(atob(code));
-    return JSON.parse(json);
-  } catch (e) {
-    return null;
-  }
-};
 
 const formatSeconds = (totalSeconds: number) => {
   const h = Math.floor(totalSeconds / 3600);
@@ -124,30 +113,81 @@ const formatTimeDisplay = (hours: number) => {
 
 // --- Components Definitions ---
 
-const AuthScreen: React.FC<{ onAuthSuccess: (user: UserProfile) => void, isDarkMode: boolean }> = ({ onAuthSuccess, isDarkMode }) => {
-  const [isLogin, setIsLogin] = useState(true);
+const AuthScreen: React.FC<{ onAuthSuccess: (user: UserProfile, data: any) => void, isDarkMode: boolean, initialMode: 'login' | 'register' }> = ({ onAuthSuccess, isDarkMode, initialMode }) => {
+  const [isLogin, setIsLogin] = useState(initialMode === 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Simulation of auth
-    const user: UserProfile = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: name || email.split('@')[0],
-      email,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      password // In real app, don't store plain password
-    };
-    onAuthSuccess(user);
+    setIsLoading(true);
+
+    try {
+        const endpoint = isLogin ? '/login' : '/register';
+        const body = isLogin 
+            ? { email, password } 
+            : { name, email, password, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+
+        const res = await fetch(`${API_URL}${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Une erreur est survenue');
+        
+        onAuthSuccess(data.user, data.data);
+    } catch (err: any) {
+        console.warn("Connexion serveur échouée, passage en mode local", err);
+        
+        // --- LOGIQUE DE SECOURS LOCALE (Plan B) ---
+        const LOCAL_DB_KEY = 'focus_local_users_db';
+        const storedUsers = localStorage.getItem(LOCAL_DB_KEY);
+        const localUsers = storedUsers ? JSON.parse(storedUsers) : [];
+
+        if (isLogin) {
+            // Tentative de connexion locale
+            const user = localUsers.find((u: any) => u.email === email && u.password === password);
+            if (user) {
+                const { password: _, ...userWithoutPass } = user;
+                onAuthSuccess(userWithoutPass, user.data);
+            } else {
+                alert('Erreur : Email ou mot de passe incorrect (Mode Local).');
+            }
+        } else {
+            // Tentative d'inscription locale
+            if (localUsers.find((u: any) => u.email === email)) {
+                alert('Erreur : Cet email est déjà utilisé (Mode Local).');
+            } else {
+                const newUser = {
+                    id: Math.random().toString(36).substr(2, 9),
+                    name,
+                    email,
+                    password,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    data: null // Les données par défaut seront initialisées dans App
+                };
+                localUsers.push(newUser);
+                localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(localUsers));
+                
+                const { password: _, ...userWithoutPass } = newUser;
+                onAuthSuccess(userWithoutPass, null);
+            }
+        }
+    } finally {
+        setIsLoading(false);
+    }
   };
 
   return (
     <div className={`min-h-screen flex items-center justify-center p-4 ${isDarkMode ? 'dark bg-black' : 'bg-slate-50'}`}>
       <div className="bg-white dark:bg-[#0a0a0a] p-8 rounded-[2.5rem] shadow-xl w-full max-w-md border border-gray-100 dark:border-white/10">
         <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-6 text-center">{isLogin ? 'Connexion' : 'Créer un compte'}</h2>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 relative z-20">
           {!isLogin && (
             <div>
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nom</label>
@@ -162,13 +202,16 @@ const AuthScreen: React.FC<{ onAuthSuccess: (user: UserProfile) => void, isDarkM
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Mot de passe</label>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-slate-50 dark:bg-white/5 p-3 rounded-xl outline-none border border-transparent focus:border-indigo-500 text-slate-800 dark:text-white font-bold mt-1" required />
           </div>
-          <button type="submit" className="bg-indigo-600 text-white p-4 rounded-xl font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors mt-4">
-            {isLogin ? 'Se connecter' : "S'inscrire"}
+          <button type="submit" disabled={isLoading} className="bg-indigo-600 text-white p-4 rounded-xl font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors mt-4 relative z-10 disabled:opacity-50 disabled:cursor-not-allowed">
+            {isLoading ? 'Chargement...' : (isLogin ? 'Se connecter' : "S'inscrire")}
           </button>
         </form>
-        <button onClick={() => setIsLogin(!isLogin)} className="w-full text-center mt-4 text-xs font-bold text-slate-400 hover:text-indigo-500">
-          {isLogin ? "Pas encore de compte ? Créer un compte" : "Déjà un compte ? Se connecter"}
-        </button>
+        
+        <div className="mt-8 pt-4 border-t border-slate-100 dark:border-white/5">
+            <button type="button" onClick={() => setIsLogin(!isLogin)} className="w-full text-center text-xs font-bold text-slate-400 hover:text-indigo-500 transition-colors">
+            {isLogin ? "Pas encore de compte ? Créer un compte" : "Déjà un compte ? Se connecter"}
+            </button>
+        </div>
       </div>
     </div>
   );
@@ -355,7 +398,7 @@ const SettingsModal: React.FC<{
           <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800/30 flex items-center justify-between">
              <div className="flex flex-col">
                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400">Sync Cloud</span>
-               <span className="text-xs text-indigo-400/80 font-medium">Sauvegarder votre code unique</span>
+               <span className="text-xs text-indigo-400/80 font-medium">Données sauvegardées sur le serveur</span>
              </div>
              <button onClick={onCopySync} className="p-2 bg-indigo-100 dark:bg-indigo-800 text-indigo-600 dark:text-indigo-300 rounded-lg"><Copy size={16} /></button>
           </div>
@@ -472,6 +515,12 @@ const SleepDial: React.FC<{ sleep: SleepSchedule, setSleep: (s: SleepSchedule | 
   const endX = 50 + 45 * Math.sin(diff * Math.PI / 180);
   const endY = 50 - 45 * Math.cos(diff * Math.PI / 180);
 
+  const bx = 50 + 45 * Math.cos((startAngle - 90) * Math.PI / 180);
+  const by = 50 + 45 * Math.sin((startAngle - 90) * Math.PI / 180);
+
+  const wx = 50 + 45 * Math.cos((endAngle - 90) * Math.PI / 180);
+  const wy = 50 + 45 * Math.sin((endAngle - 90) * Math.PI / 180);
+
   return (
     <div className="w-32 h-32 rounded-full border-[10px] border-slate-50 dark:border-white/5 relative flex items-center justify-center select-none shadow-inner">
       <svg 
@@ -491,32 +540,22 @@ const SleepDial: React.FC<{ sleep: SleepSchedule, setSleep: (s: SleepSchedule | 
           className="transition-all duration-100" 
         />
         
-        <circle 
-          cx={50 + 45 * Math.cos((startAngle - 90) * Math.PI / 180)} 
-          cy={50 + 45 * Math.sin((startAngle - 90) * Math.PI / 180)} 
-          r="6" 
-          fill="#818cf8" 
-          stroke="white"
-          strokeWidth="2"
-          className="cursor-grab active:cursor-grabbing shadow-lg"
-          onMouseDown={(e) => { e.stopPropagation(); setIsDragging('bed'); }}
-          onTouchStart={(e) => { e.stopPropagation(); setIsDragging('bed'); }}
-        />
-        <circle 
-          cx={50 + 45 * Math.cos((endAngle - 90) * Math.PI / 180)} 
-          cy={50 + 45 * Math.sin((endAngle - 90) * Math.PI / 180)} 
-          r="6" 
-          fill="#4f46e5" 
-          stroke="white"
-          strokeWidth="2"
-          className="cursor-grab active:cursor-grabbing shadow-lg"
-          onMouseDown={(e) => { e.stopPropagation(); setIsDragging('wake'); }}
-          onTouchStart={(e) => { e.stopPropagation(); setIsDragging('wake'); }}
-        />
+        {/* Bed Handle - Moon */}
+        <g transform={`translate(${bx}, ${by})`} className="cursor-grab active:cursor-grabbing" onMouseDown={(e) => { e.stopPropagation(); setIsDragging('bed'); }} onTouchStart={(e) => { e.stopPropagation(); setIsDragging('bed'); }}>
+            <circle cx="0" cy="0" r="10" fill="#818cf8" stroke="white" strokeWidth="2" className="shadow-lg" />
+            <g transform="translate(-6, -6)">
+               <Moon size={12} className="text-white fill-white/20" />
+            </g>
+        </g>
+
+        {/* Wake Handle - Bell */}
+        <g transform={`translate(${wx}, ${wy})`} className="cursor-grab active:cursor-grabbing" onMouseDown={(e) => { e.stopPropagation(); setIsDragging('wake'); }} onTouchStart={(e) => { e.stopPropagation(); setIsDragging('wake'); }}>
+            <circle cx="0" cy="0" r="10" fill="#4f46e5" stroke="white" strokeWidth="2" className="shadow-lg" />
+             <g transform="translate(-6, -6)">
+               <Bell size={12} className="text-white fill-white/20" />
+            </g>
+        </g>
       </svg>
-      <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-white dark:bg-[#1a1a1a] shadow-md border dark:border-white/10 flex items-center justify-center translate-x-3 -translate-y-3 pointer-events-none">
-        <Bell size={12} className="text-amber-500" />
-      </div>
     </div>
   );
 };
@@ -525,6 +564,7 @@ const SleepDial: React.FC<{ sleep: SleepSchedule, setSleep: (s: SleepSchedule | 
 
 const App: React.FC = () => {
   const [appView, setAppView] = useState<'landing' | 'auth' | 'dashboard'>('landing');
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('focus_dark_mode') === 'true');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -534,7 +574,7 @@ const App: React.FC = () => {
   const [growth, setGrowth] = useState<GrowthState>({ type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 });
   const [isGrowthSelectOpen, setIsGrowthSelectOpen] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedStatsDate, setSelectedStatsDate] = useState(new Date()); // NOUVEAU: Date sélectionnée pour les stats
+  const [selectedStatsDate, setSelectedStatsDate] = useState(new Date()); 
   const [now, setNow] = useState(new Date());
   const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
@@ -550,7 +590,6 @@ const App: React.FC = () => {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const clockRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
-  // Ref pour éviter la boucle infinie dans le useEffect de synchronisation
   const currentUserRef = useRef(currentUser);
 
   useEffect(() => {
@@ -559,21 +598,36 @@ const App: React.FC = () => {
   }, [isDarkMode]);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('focus_current_user');
-    if (savedUser) {
-      const user = JSON.parse(savedUser);
-      setCurrentUser(user);
-      currentUserRef.current = user;
-      setAppView('dashboard');
-      setIsSyncing(true);
-      setTimeout(() => { setIsSyncing(false); setLastSynced(new Date()); }, 1000);
-    }
-    setIsAuthLoading(false);
-  }, []);
-
-  useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
+
+  // Initial Load from LocalStorage
+  useEffect(() => {
+    const checkSession = async () => {
+        setIsAuthLoading(true);
+        const savedUserStr = localStorage.getItem('focus_current_user');
+        
+        if (savedUserStr) {
+            try {
+                const user = JSON.parse(savedUserStr);
+                setCurrentUser(user);
+                currentUserRef.current = user;
+                // Note: En mode cloud, on pourrait fetcher les dernières données ici
+                // Pour l'instant on garde la session active
+                setAppView('dashboard');
+            } catch (e) {
+                console.error("Session corrupted", e);
+                localStorage.removeItem('focus_current_user');
+                setAppView('landing');
+            }
+        } else {
+            setAppView('landing');
+        }
+        setIsAuthLoading(false);
+    };
+    
+    checkSession();
+  }, []);
 
   useEffect(() => {
     clockRef.current = setInterval(() => setNow(new Date()), 60000);
@@ -585,9 +639,7 @@ const App: React.FC = () => {
     if (viewMode === 'week') {
        const start = startOfWeek(currentDate, { weekStartsOn: 1 });
        const end = endOfWeek(currentDate, { weekStartsOn: 1 });
-       // If selected date is not in visible week, update it
        if (selectedStatsDate < start || selectedStatsDate > end) {
-           // Check if today is in this week
            if (isSameDay(new Date(), currentDate) || (new Date() >= start && new Date() <= end)) {
                setSelectedStatsDate(new Date());
            } else {
@@ -595,60 +647,39 @@ const App: React.FC = () => {
            }
        }
     } else {
-       // Day view: always select current date
        setSelectedStatsDate(currentDate);
     }
   }, [currentDate, viewMode]);
 
-  // Load Data by Email
-  useEffect(() => {
-    if (!currentUser) return;
-    const prefix = `focus_${currentUser.email}_`;
-    const savedTasks = localStorage.getItem(`${prefix}tasks`);
-    const savedTodos = localStorage.getItem(`${prefix}todos`);
-    const savedCategories = localStorage.getItem(`${prefix}categories`);
-    const savedSleep = localStorage.getItem(`${prefix}sleep`);
-    const savedGrowth = localStorage.getItem(`${prefix}growth`);
-    
-    if (savedTasks) setTasks(JSON.parse(savedTasks));
-    if (savedTodos) setTodos(JSON.parse(savedTodos));
-    if (savedCategories) setCategories(JSON.parse(savedCategories));
-    if (savedSleep) setSleep(JSON.parse(savedSleep));
-    if (savedGrowth) setGrowth(JSON.parse(savedGrowth));
-    else setIsGrowthSelectOpen(true);
-  }, [currentUser?.email]); // Seulement recharger si l'email change
-
-  // Sync / Save Data - FIX BOUCLE INFINIE
+  // Sync Data to Cloud Server
   useEffect(() => {
     const user = currentUserRef.current;
-    if (!user) return;
+    if (!user || appView !== 'dashboard') return;
     
-    const prefix = `focus_${user.email}_`;
-    localStorage.setItem(`${prefix}tasks`, JSON.stringify(tasks));
-    localStorage.setItem(`${prefix}todos`, JSON.stringify(todos));
-    localStorage.setItem(`${prefix}categories`, JSON.stringify(categories));
-    localStorage.setItem(`${prefix}sleep`, JSON.stringify(sleep));
-    localStorage.setItem(`${prefix}growth`, JSON.stringify(growth));
-
     const syncTimeout = setTimeout(() => {
       setIsSyncing(true);
-      // On ne met pas à jour le state currentUser ici pour éviter la boucle
-      // On met juste à jour le localStorage pour la persistance de la session
-      const syncCode = generateSyncCode({ tasks, todos, categories, sleep, growth, user });
-      const updatedUser = { ...user, syncCode };
-      localStorage.setItem('focus_current_user', JSON.stringify(updatedUser));
+      const dataToSave = { tasks, todos, categories, sleep, growth };
       
-      // On met à jour la ref pour que la prochaine synchro ait le bon code si nécessaire
-      currentUserRef.current = updatedUser;
-
-      setTimeout(() => {
+      fetch(`${API_URL}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email, data: dataToSave })
+      })
+      .then(res => {
+          if (res.ok) setLastSynced(new Date());
+          else console.error("Sync server error");
+      })
+      .catch(e => {
+        console.error("Cloud Sync failed", e);
+      })
+      .finally(() => {
         setIsSyncing(false);
-        setLastSynced(new Date());
-      }, 500);
-    }, 1500);
+      });
+
+    }, 1000); 
 
     return () => clearTimeout(syncTimeout);
-  }, [tasks, todos, categories, sleep, growth]); // Retrait de currentUser des dépendances
+  }, [tasks, todos, categories, sleep, growth, appView]);
 
   const dailyPoints = useMemo(() => {
     let pts = 0;
@@ -722,7 +753,6 @@ const App: React.FC = () => {
 
   const maxWeeklyHours = Math.max(...weeklySummary.map(s => Math.max(s.actualHours, s.plannedHours)), 1);
   
-  // Correction: Calculer les stats pour la journée SÉLECTIONNÉE (et non plus juste "aujourd'hui")
   const statsDateStr = formatDate(selectedStatsDate);
   const currentStatsSummary = categories.map(cat => {
     const filtered = tasks.filter(t => t.date === statsDateStr && t.categoryId === cat.id);
@@ -763,20 +793,26 @@ const App: React.FC = () => {
   }, []);
 
   const copySyncCode = () => {
-    // Utiliser la ref pour avoir la version la plus récente avec le syncCode généré
-    const user = currentUserRef.current;
-    if (user?.syncCode) {
-      navigator.clipboard.writeText(user.syncCode);
-      alert('Code de synchronisation copié ! Conservez-le pour vos autres appareils.');
-    } else {
-        // Fallback si pas de syncCode immédiat
-        alert('Attendez quelques secondes que la synchronisation se termine.');
+    alert('Vos données sont sauvegardées sur le serveur.');
+  };
+  
+  const handleAuthSuccess = (user: UserProfile, data: any) => {
+    setCurrentUser(user);
+    localStorage.setItem('focus_current_user', JSON.stringify(user));
+    if (data) {
+        setTasks(data.tasks || []);
+        setTodos(data.todos || []);
+        setCategories(data.categories || INITIAL_CATEGORIES);
+        setSleep(data.sleep || { enabled: true, bedtime: '23:30', wakeTime: '07:00' });
+        setGrowth(data.growth || { type: 'fleur', totalPoints: 0, lastPointsUpdate: formatDate(new Date()), streak: 1 });
+        if (!data.growth) setIsGrowthSelectOpen(true);
     }
+    setAppView('dashboard');
   };
 
   if (isAuthLoading) return <div className="flex items-center justify-center h-screen bg-slate-50 dark:bg-black"><div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>;
-  if (appView === 'landing') return <LandingPage onStart={() => setAppView('auth')} onLogin={() => setAppView('auth')} />;
-  if (appView === 'auth' && !currentUser) return <AuthScreen onAuthSuccess={user => { setCurrentUser(user); currentUserRef.current = user; localStorage.setItem('focus_current_user', JSON.stringify(user)); setAppView('dashboard'); }} isDarkMode={isDarkMode} />;
+  if (appView === 'landing') return <LandingPage onStart={() => { setAuthInitialMode('register'); setAppView('auth'); }} onLogin={() => { setAuthInitialMode('login'); setAppView('auth'); }} />;
+  if (appView === 'auth' && !currentUser) return <AuthScreen onAuthSuccess={handleAuthSuccess} isDarkMode={isDarkMode} initialMode={authInitialMode} />;
 
   return (
     <div className={`${isDarkMode ? 'dark' : ''} h-screen bg-[#f1f2f6] dark:bg-black p-4 lg:p-6 overflow-hidden flex`}>
@@ -786,7 +822,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              {isSyncing ? 'Synchronisation Cloud...' : `En ligne - ${lastSynced ? format(lastSynced, 'HH:mm') : ''}`}
+              {isSyncing ? 'Sauvegarde...' : 'Sauvegardé'}
             </span>
           </div>
         </header>
@@ -931,6 +967,9 @@ const App: React.FC = () => {
                   const dayStr = formatDate(date);
                   const layout = getLayoutedTasks(tasks.filter(t => t.date === dayStr));
                   const isSelected = isSameDay(date, selectedStatsDate);
+                  const isToday = isSameDay(date, now);
+                  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+                  const currentTimeTop = (currentMinutes / 60) * HOUR_HEIGHT;
                   
                   return (
                     <div key={idx} 
@@ -956,6 +995,14 @@ const App: React.FC = () => {
                            style={{ top: (i + 1) * HOUR_HEIGHT }} 
                         />
                       ))}
+                      
+                      {/* INDICATEUR DE TEMPS ACTUEL (Ligne Rouge) */}
+                      {isToday && (
+                        <div className="absolute w-full z-20 pointer-events-none flex items-center" style={{ top: currentTimeTop }}>
+                           <div className="w-3 h-3 rounded-full bg-red-500 -ml-1.5 shrink-0 shadow-sm" />
+                           <div className="h-[2px] w-full bg-red-500" />
+                        </div>
+                      )}
 
                       {layout.map(item => {
                         const cat = categories.find(c => c.id === item.task.categoryId) || categories[0];
