@@ -543,3 +543,18 @@ input, textarea, select { font: inherit; color: inherit; }
 .screen.fixed .chip { height: 36px; font-size: 13.5px; padding: 0 14px; }
 .screen.fixed .strip-toggle { margin: 2px 0 0; }
 .screen.fixed .strip-toggle span { display: none; }
+
+/* Historique : anneau partiel autour du numéro, disque plein quand tout est validé */
+.cal .d { width: 100%; max-width: 42px; justify-self: center; }
+.cal .d .arc {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(var(--lime) var(--p), transparent 0);
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%); mask: radial-gradient(circle, transparent 62%, #000 64%);
+}
+.legend i.partial { background: conic-gradient(var(--lime) 60%, var(--surface-3) 0); -webkit-mask: radial-gradient(circle, transparent 45%, #000 50%); mask: radial-gradient(circle, transparent 45%, #000 50%); }
+
+/* Pastille emoji d'habitude */
+.emo-badge {
+  width: 52px; height: 52px; border-radius: 17px; flex: none; display: grid; place-items: center; font-size: 26px;
+  background: color-mix(in srgb, var(--c) 24%, var(--surface));
+}

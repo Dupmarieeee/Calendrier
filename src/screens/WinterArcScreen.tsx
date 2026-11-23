@@ -203,7 +203,7 @@ function HistoryView() {
     <>
       <div className="legend" style={{ margin: '0 4px 14px' }}>
         <span><i style={{ background: 'var(--lime)' }} /> Tout validé</span>
-        <span><i style={{ background: 'color-mix(in srgb, var(--lime) 45%, var(--surface))' }} /> Partiel</span>
+        <span><i className="partial" /> Partiel</span>
         <span><i style={{ background: 'var(--surface)', border: '1px solid var(--line)' }} /> Rien</span>
       </div>
       <p className="small muted" style={{ margin: '0 4px 14px' }}>Touchez un jour passé pour corriger une case oubliée.</p>
@@ -236,7 +236,8 @@ function HistoryView() {
                     onClick={() => ui.open({ type: 'habitDay', date: d })}
                     aria-label={`${labelDay(d)} : ${s.done} sur ${s.total}`}
                   >
-                    {inRange && !isFuture && ratio > 0 && <span className="fill" style={{ opacity: full ? 1 : 0.25 + ratio * 0.45 }} />}
+                    {inRange && !isFuture && ratio > 0 && !full && <span className="arc" style={{ ['--p' as any]: `${ratio * 100}%` }} />}
+                    {full && <span className="fill" />}
                     <span>{i + 1}</span>
                   </button>
                 );
@@ -261,17 +262,20 @@ function ProgressView() {
   return (
     <>
       <div className="hero">
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-end' }}>
-          <div>
-            <div className="muted small">Progression du challenge</div>
-            <div className="big-number" style={{ marginTop: 6 }}>{Math.round((p.dayIndex / p.totalDays) * 100)} %</div>
-          </div>
-          <div className="muted small" style={{ textAlign: 'right' }}>
-            {labelDate(state.challenge.startDate)} → {labelDate(state.challenge.endDate)}<br />
-            {remaining} jour{remaining > 1 ? 's' : ''} restant{remaining > 1 ? 's' : ''}
+        <div className="hero-title"><span>Progression du challenge</span></div>
+        <div className="hero-split">
+          <Ring value={p.dayIndex / p.totalDays} size={118} stroke={12}>
+            <div className="v">{Math.round((p.dayIndex / p.totalDays) * 100)} %</div>
+            <div className="s">du challenge</div>
+          </Ring>
+          <span className="divider" />
+          <div className="stat-list">
+            <div className="stat"><span className="ic"><CalendarClock size={15} /></span><div><div className="v">{p.dayIndex}/{p.totalDays}</div><div className="l">Jours écoulés</div></div></div>
+            <div className="stat"><span className="ic"><Hourglass size={15} /></span><div><div className="v">{remaining}</div><div className="l">Jours restants</div></div></div>
+            <div className="stat"><span className="ic"><Target size={15} /></span><div><div className="v" style={{ fontSize: 14 }}>{labelDate(state.challenge.endDate)}</div><div className="l">Fin du challenge</div></div></div>
           </div>
         </div>
-        <div className="progress" style={{ marginTop: 14 }}><i style={{ width: `${(p.dayIndex / p.totalDays) * 100}%` }} /></div>
+        <div className="progress" style={{ marginTop: 16 }}><i style={{ width: `${(p.dayIndex / p.totalDays) * 100}%` }} /></div>
       </div>
 
       <div className="kpis" style={{ marginTop: 12 }}>

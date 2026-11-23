@@ -41,6 +41,7 @@ export function HabitEditor({ id, onClose }: { id?: string; onClose: () => void 
       <Sheet
         title={existing ? 'Modifier l’habitude' : 'Nouvelle habitude'}
         onClose={onClose}
+        onConfirm={save}
         footer={
           <>
             {existing && <button className="btn danger" aria-label="Supprimer" onClick={() => setConfirm(true)}><Trash2 size={18} /></button>}
@@ -49,10 +50,8 @@ export function HabitEditor({ id, onClose }: { id?: string; onClose: () => void 
         }
       >
         <div className="row" style={{ gap: 12 }}>
-          <span className="habit" style={{ ['--c' as any]: h.color, width: 'auto', padding: 0, margin: 0, background: 'none', border: 0 }}>
-            <span className="emo">{h.emoji}</span>
-          </span>
-          <input className="input big grow" placeholder="Nom (ex. Marcher)" value={h.name} autoFocus={!existing} onChange={(e) => set({ name: e.target.value })} />
+          <span className="emo-badge" style={{ ['--c' as any]: h.color }}>{h.emoji}</span>
+          <input className="input grow" placeholder="Nom (ex. Marcher)" value={h.name} autoFocus={!existing} onChange={(e) => set({ name: e.target.value })} />
         </div>
         <label className="field">
           <span className="label">Objectif</span>
@@ -134,7 +133,7 @@ export function ChallengeEditor({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Sheet title="Mon challenge" onClose={onClose} footer={<button className="btn primary grow" onClick={save}><Check size={18} /> Enregistrer</button>}>
+    <Sheet title="Mon challenge" onClose={onClose} onConfirm={save} footer={<button className="btn primary grow" onClick={save}><Check size={18} /> Enregistrer</button>}>
       <label className="field">
         <span className="label">Nom</span>
         <input className="input" value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} />
@@ -177,6 +176,7 @@ export function CategoryEditor({ id, onClose }: { id?: string; onClose: () => vo
       <Sheet
         title={existing ? 'Catégorie' : 'Nouvelle catégorie'}
         onClose={onClose}
+        onConfirm={save}
         footer={
           <>
             {existing && <button className="btn danger" aria-label="Supprimer" onClick={() => setConfirm(true)}><Trash2 size={18} /></button>}
