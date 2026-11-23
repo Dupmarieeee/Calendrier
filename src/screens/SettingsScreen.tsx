@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import {
   AlertTriangle, ChevronRight, Download, Globe, Lock, Moon, Plus, RefreshCw, Share, Smartphone, Snowflake, Sun, SunMoon, Trash2, Upload,
 } from 'lucide-react';
+import Hello from '../components/Hello';
 import { ChoiceSheet, GoogleMark, Segmented, Switch, useUI } from '../components/ui';
 import { defaultState } from '../lib/actions';
 import { APP_TZ, labelDate, relativeTime } from '../lib/dates';
@@ -175,6 +176,7 @@ export default function SettingsScreen() {
   const ui = useUI();
   const categories = useApp((s) => s.categories);
   const theme = useApp((s) => s.settings.theme);
+  const name = useApp((s) => s.settings.name);
   const challenge = useApp((s) => s.challenge);
   const fileRef = useRef<HTMLInputElement>(null);
   const [reset, setReset] = useState(false);
@@ -203,12 +205,14 @@ export default function SettingsScreen() {
 
   return (
     <div className="screen">
-      <div className="topbar">
-        <div>
-          <div className="eyebrow">Givre</div>
-          <h1 className="title">Réglages</h1>
-        </div>
-      </div>
+      <Hello />
+      <h1 className="display">Réglages</h1>
+
+      <label className="field" style={{ marginTop: 0, marginBottom: 16 }}>
+        <span className="label">Votre prénom (pour l’accueil)</span>
+        <input className="input" value={name ?? ''} placeholder="ex. Marie" autoComplete="given-name"
+          onChange={(e) => update((s) => ({ ...s, settings: { ...s.settings, name: e.target.value } }))} />
+      </label>
 
       <GoogleCard />
 

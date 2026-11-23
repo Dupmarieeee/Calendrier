@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Check, ListChecks, Repeat, StickyNote } from 'lucide-react';
+import { Check, ChevronRight, ListChecks, MoreHorizontal, Repeat, StickyNote } from 'lucide-react';
 import { formatHour, fromMinutes, JOURS_COURTS, parseISO, slotMinutes, toMinutes } from '../lib/dates';
 import type { Item, ISODate } from '../lib/types';
 import { GoogleMark, vibrate } from './ui';
@@ -105,8 +105,17 @@ export default function TimeGrid(p: Props) {
     const block = (e: TouchEvent) => {
       if (dragRef.current?.active) e.preventDefault();
     };
+    // Si le navigateur a quand même commencé à défiler, on remet la grille en place
+    const pin = () => {
+      const st = dragRef.current;
+      if (st?.active && st.lockTop !== undefined && Math.abs(el.scrollTop - st.lockTop) > 0.5) el.scrollTop = st.lockTop;
+    };
     el.addEventListener('touchmove', block, { passive: false });
-    return () => el.removeEventListener('touchmove', block);
+    el.addEventListener('scroll', pin, { passive: true });
+    return () => {
+      el.removeEventListener('touchmove', block);
+      el.removeEventListener('scroll', pin);
+    };
   }, []);
 
   const timed = useMemo(() => p.items.filter((i) => i.start && i.end), [p.items]);
@@ -128,7 +137,9 @@ export default function TimeGrid(p: Props) {
   // ---------------------------------------------------------------- Glisser-déposer
   function computeView(st: DragState, clientX: number, clientY: number) {
     const el = scrollRef.current!;
-    const dy = clientY - st.y0 + (el.scrollTop - st.scroll0);
+    // Position verrouillée pendant le glisser : un défilement parasite n'influence pas le calcul
+    const top = st.active && st.lockTop !== undefined ? st.lockTop : el.scrollTop;
+    const dy = clientY - st.y0 + (top - st.scroll0);
     const dx = clientX - st.x0;
     const dMin = Math.round(((dy / hh) * 60) / SNAP) * SNAP;
     const dur = st.end - st.start;
@@ -169,6 +180,7 @@ export default function TimeGrid(p: Props) {
   function onMove(e: PointerEvent) {
     const st = dragRef.current;
     if (!st) return;
+    const prevY = st.lastY;
     st.lastY = e.clientY;
     const dist = Math.hypot(e.clientX - st.x0, e.clientY - st.y0);
     if (!st.active) {
@@ -182,8 +194,9 @@ export default function TimeGrid(p: Props) {
     const el = scrollRef.current!;
     const r = el.getBoundingClientRect();
     let lock = st.lockTop ?? el.scrollTop;
-    if (e.clientY < r.top + 60) lock -= 12;
-    else if (e.clientY > r.bottom - 120) lock += 12;
+    // Défilement automatique seulement si le doigt va vers le bord
+    if (e.clientY < r.top + 60 && e.clientY < prevY) lock -= 12;
+    else if (e.clientY > r.bottom - 120 && e.clientY > prevY) lock += 12;
     st.lockTop = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, lock));
     // Annule tout défilement natif : seule l'auto-défilement près des bords fait bouger la grille
     el.scrollTop = st.lockTop;
@@ -301,7 +314,7 @@ export default function TimeGrid(p: Props) {
       <div className="grid-body" style={{ height: dayH + 16, paddingTop: 8 }}>
         <div className="hours" style={{ height: dayH }}>
           {Array.from({ length: 24 }, (_, h) => (h === 0 ? null : (
-            <span key={h} style={{ top: h * hh }}>{`${h}:00`}</span>
+            <span key={h} style={{ top: h * hh }}>{`${h} h`}</span>
           )))}
           {showsToday && <span className="nowbadge" style={{ top: nowTop }}>{formatHour(fromMinutes(p.nowMinutes))}</span>}
         </div>
@@ -326,7 +339,6 @@ export default function TimeGrid(p: Props) {
                 {Array.from({ length: 24 }, (_, h) => (
                   <div key={h} className="hline" style={{ top: h * hh }} />
                 ))}
-                {p.rich && Array.from({ length: 24 }, (_, h) => <div key={`h${h}`} className="hline half" style={{ top: h * hh + hh / 2 }} />)}
                 {list.map((it) => {
                   const s = toMinutes(it.start!);
                   const dur = slotMinutes(it.start!, it.end!);
@@ -336,6 +348,7 @@ export default function TimeGrid(p: Props) {
                   const w = 100 / l.cols;
                   const isDrag = drag?.id === it.id;
                   const doneSub = it.subtasks.filter((x) => x.done).length;
+                  const nextSub = it.subtasks.find((x) => !x.done) ?? it.subtasks[0];
                   return (
                     <div
                       key={it.id}
@@ -346,8 +359,10 @@ export default function TimeGrid(p: Props) {
                         ['--c' as any]: p.colorOf(it),
                         top,
                         height,
-                        left: `calc(${l.col * w}% + 2px)`,
-                        width: `calc(${w}% - 4px)`,
+                        // Vue jour : colonnes côte à côte ; vue semaine (étroite) : cartes en cascade
+                        left: p.rich ? `calc(${l.col * w}% + 2px)` : `${2 + l.col * 9}px`,
+                        width: p.rich ? `calc(${w}% - 4px)` : `calc(100% - ${4 + l.col * 9}px)`,
+                        zIndex: isDrag ? 20 : 2 + l.col,
                         right: 'auto',
                       }}
                       onPointerDown={(e) => onPointerDown(e, it, 'move')}
@@ -359,40 +374,46 @@ export default function TimeGrid(p: Props) {
                       }}
                       onKeyDown={(e) => e.key === 'Enter' && p.onOpen(it.id)}
                     >
-                      <div className="row" style={{ alignItems: 'flex-start', gap: 6 }}>
-                        <div className="grow">
-                          <div className="t">{it.title}</div>
-                          {(p.rich || height > 34) && (
-                            <div className="h">
-                              {formatHour(it.start!)}{p.rich ? ` – ${formatHour(it.end!)}` : ''}
+                      {p.rich ? (
+                        <>
+                          <div className="ev-top">
+                            <div className="t">{it.title}</div>
+                            {it.kind === 'task' ? (
+                              <button
+                                className={`check ${it.done ? 'on' : ''}`}
+                                aria-label={it.done ? 'Marquer comme à faire' : 'Marquer comme faite'}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  p.onToggleDone(it.id);
+                                }}
+                              >
+                                <Check size={14} strokeWidth={3} />
+                              </button>
+                            ) : (
+                              <MoreHorizontal size={18} className="dots" aria-hidden />
+                            )}
+                          </div>
+                          {height > 40 && <div className="h">{formatHour(it.start!)} – {formatHour(it.end!)}</div>}
+                          {height > 92 && nextSub && (
+                            <div className="subchip"><ListChecks size={12} /> <span>{nextSub.text}</span> <b>{doneSub}/{it.subtasks.length}</b></div>
+                          )}
+                          {height > 120 && (
+                            <div className="meta">
+                              {(it.seriesId || it.g?.recurringEventId) && <Repeat size={13} />}
+                              {it.notes && <StickyNote size={13} />}
+                              {it.g && <GoogleMark size={13} />}
+                              <span className="grow" />
+                              <span className="chev"><ChevronRight size={15} /></span>
                             </div>
                           )}
-                        </div>
-                        {p.rich && it.kind === 'task' && (
-                          <button
-                            className={`check ${it.done ? 'on' : ''}`}
-                            aria-label={it.done ? 'Marquer comme à faire' : 'Marquer comme faite'}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              p.onToggleDone(it.id);
-                            }}
-                          >
-                            <Check size={15} strokeWidth={3} />
-                          </button>
-                        )}
-                      </div>
-                      {p.rich && height > 62 && (
-                        <div className="meta">
-                          {it.subtasks.length > 0 && (
-                            <span className="row" style={{ gap: 4 }}><ListChecks size={13} /> {doneSub}/{it.subtasks.length}</span>
-                          )}
-                          {it.notes && <StickyNote size={13} />}
-                          {(it.seriesId || it.g?.recurringEventId) && <Repeat size={13} />}
-                          {it.g && <GoogleMark size={12} />}
-                        </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="t">{it.title}</div>
+                          {height > 34 && <div className="h">{formatHour(it.start!)}</div>}
+                        </>
                       )}
-                      {p.rich && height > 44 && !it.g?.readOnly && <div className="grip" />}
                       {!it.g?.readOnly && (
                         <div className="resize-zone" onPointerDown={(e) => onPointerDown(e, it, 'resize')} />
                       )}

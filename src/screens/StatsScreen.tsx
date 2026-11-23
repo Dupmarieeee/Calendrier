@@ -19,7 +19,7 @@ function Donut({ parts, size = 132, stroke = 16 }: { parts: { color: string; val
   return (
     <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', flex: 'none' }} role="img"
       aria-label={parts.map((p) => `${p.label} ${formatDuration(p.value)}`).join(', ') || 'Aucun créneau'}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--surface-3)" strokeWidth={stroke} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth={stroke} />
       {total > 0 && parts.map((p) => {
         const len = (p.value / total) * c;
         const el = (
@@ -70,34 +70,44 @@ export default function StatsScreen() {
 
   return (
     <div className="screen">
-      <div className="topbar">
-        <div>
-          <div className="eyebrow">Temps planifié</div>
-          <h1 className="title">Statistiques</h1>
-        </div>
-      </div>
-
-      <div className="card weeknav" style={{ padding: 8 }}>
-        <button className="icon-btn sm" onClick={() => { setWs(addDays(ws, -7)); setSel(null); }} aria-label="Semaine précédente"><ChevronLeft size={18} /></button>
-        <button className="mid" onClick={() => { setWs(startOfWeek(today)); setSel(null); }}>
-          <div className="a">Semaine {isoWeek(ws)}{isCurrent ? ' · en cours' : ''}</div>
-          <div className="small muted">{labelRange(days[0], days[6])}</div>
+      <div className="headbar">
+        <button className="icon-btn" onClick={() => { setWs(addDays(ws, -7)); setSel(null); }} aria-label="Semaine précédente"><ChevronLeft size={20} /></button>
+        <button className="grow when" style={{ textAlign: 'left' }} onClick={() => { setWs(startOfWeek(today)); setSel(null); }}>
+          Semaine {isoWeek(ws)} · {labelRange(days[0], days[6])}{isCurrent ? '' : ' ↺'}
         </button>
-        <button className="icon-btn sm" onClick={() => { setWs(addDays(ws, 7)); setSel(null); }} aria-label="Semaine suivante"><ChevronRight size={18} /></button>
+        <button className="icon-btn" onClick={() => { setWs(addDays(ws, 7)); setSel(null); }} aria-label="Semaine suivante"><ChevronRight size={20} /></button>
       </div>
 
-      <div className="hero" style={{ marginTop: 12 }}>
-        <div className="row" style={{ gap: 16 }}>
-          <div className="grow">
-            <div className="muted small">Total planifié</div>
-            <div className="big-number" style={{ marginTop: 8 }}>{formatDuration(stats.totalMinutes)}</div>
-            <div className="small muted" style={{ marginTop: 8 }}>
-              {prev.totalMinutes || stats.totalMinutes
-                ? `${diff >= 0 ? '+' : '−'}${formatDuration(Math.abs(diff))} vs semaine précédente`
-                : 'Aucun créneau cette semaine'}
+      <h1 className="display">Où passe<br />mon temps</h1>
+
+      <div className="hero">
+        <div className="hero-title">
+          <span>Temps planifié</span>
+          <span className="small muted" style={{ fontWeight: 500 }}>
+            {prev.totalMinutes || stats.totalMinutes ? `${diff >= 0 ? '+' : '−'}${formatDuration(Math.abs(diff))} vs S-1` : ''}
+          </span>
+        </div>
+        <div className="hero-split">
+          <div className="ring-wrap" style={{ width: 124, height: 124 }}>
+            <Donut parts={stats.totals.map((t) => ({ color: t.category.color, value: t.minutes, label: t.category.name }))} size={124} stroke={13} />
+            <div className="ring-label">
+              <div className="v" style={{ fontSize: 19 }}>{formatDuration(stats.totalMinutes)}</div>
+              <div className="s">au total</div>
             </div>
           </div>
-          <Donut parts={stats.totals.map((t) => ({ color: t.category.color, value: t.minutes, label: t.category.name }))} size={120} stroke={14} />
+          <span className="divider" />
+          <div className="stat-list">
+            {stats.totals.length === 0 && <div className="small muted">Aucun créneau horaire cette semaine.</div>}
+            {[...stats.totals].sort((x, y) => y.minutes - x.minutes).slice(0, 3).map((t) => (
+              <div key={t.category.id} className="stat">
+                <span className="ic"><span style={{ width: 10, height: 10, borderRadius: 3, background: t.category.color }} /></span>
+                <div style={{ minWidth: 0 }}>
+                  <div className="v">{formatDuration(t.minutes)}</div>
+                  <div className="l" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.category.name}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 

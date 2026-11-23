@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarCheck2, Check, ChevronLeft, ChevronRight, Cloud, CloudOff, RefreshCw } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cloud, CloudOff, Plus, RefreshCw } from 'lucide-react';
 import TimeGrid from '../components/TimeGrid';
-import { Segmented, useUI } from '../components/ui';
+import { useUI } from '../components/ui';
 import { updateItem } from '../lib/actions';
 import { itemColor } from '../lib/colors';
 import {
-  addDays, fromMinutes, isoWeek, JOURS_COURTS, labelDay, labelMonthYear, parseISO, weekDays,
+  addDays, fromMinutes, isoWeek, JOURS_COURTS, labelDay, labelRange, parseISO, weekDays,
 } from '../lib/dates';
 import { setSyncFocus, syncNow, useGoogleRuntime } from '../lib/google/client';
 import { update, useApp } from '../lib/store';
@@ -67,56 +67,54 @@ export default function AgendaScreen() {
   return (
     <div className="screen fixed">
       <div className="agenda-head">
-        <div className="topbar">
-          <div>
-            <div className="eyebrow row" style={{ gap: 8 }}>
-              <span>Semaine {wk}</span>
+        <div className="headbar">
+          <button className="icon-btn" onClick={() => step(-1)} aria-label={mode === 'week' ? 'Semaine précédente' : 'Jour précédent'}>
+            <ChevronLeft size={20} />
+          </button>
+          <div className="grow" style={{ minWidth: 0 }}>
+            <div className="small muted row" style={{ gap: 6 }}>
+              {mode === 'day' ? `Semaine ${wk}` : labelRange(week[0], week[6])}
               {syncIcon && (
-                <button className="sync-dot" onClick={() => syncNow()} aria-label="Synchroniser avec Google Agenda">
-                  {syncIcon}
-                </button>
+                <button className="sync-dot" onClick={() => syncNow()} aria-label="Synchroniser avec Google Agenda">{syncIcon}</button>
               )}
             </div>
-            <h1 className="title">{mode === 'day' ? labelDay(date) : labelMonthYear(week[3])}</h1>
-          </div>
-          <div className="row">
-            <button className="icon-btn" onClick={() => setDate(today)} aria-label="Aujourd'hui">
-              <CalendarCheck2 size={19} />
+            <button className="when" style={{ fontSize: 17, fontWeight: 600, whiteSpace: 'nowrap' }} onClick={() => setDate(today)} aria-label="Revenir à aujourd’hui">
+              {mode === 'day' ? labelDay(date) : `Semaine ${wk}`}
+              {!week.includes(today) || (mode === 'day' && date !== today) ? <span className="badge" style={{ marginLeft: 8, verticalAlign: 2 }}>Aujourd’hui</span> : null}
             </button>
           </div>
+          <button className="icon-btn dark" onClick={() => ui.open({ type: 'item', preset: { kind: 'event', date } })} aria-label="Nouveau créneau">
+            <Plus size={20} />
+          </button>
+          <button className="icon-btn" onClick={() => step(1)} aria-label={mode === 'week' ? 'Semaine suivante' : 'Jour suivant'}>
+            <ChevronRight size={20} />
+          </button>
         </div>
 
-        <div className="row" style={{ gap: 8 }}>
-          <button className="icon-btn sm" onClick={() => step(-1)} aria-label="Précédent"><ChevronLeft size={18} /></button>
-          <div className="grow">
-            <Segmented<Mode>
-              value={mode}
-              onChange={setMode}
-              options={[{ value: 'week', label: 'Semaine' }, { value: 'day', label: 'Jour' }]}
-            />
-          </div>
-          <button className="icon-btn sm" onClick={() => step(1)} aria-label="Suivant"><ChevronRight size={18} /></button>
-        </div>
-
+        <div style={{ height: 14 }} />
         {mode === 'day' && (
-          <div className="weekstrip" style={{ marginTop: 12 }}>
-            <div className="days">
-              {week.map((d, i) => (
-                <button
-                  key={d}
-                  className={`daypill ${d === date ? 'on' : ''} ${d === today ? 'today' : ''}`}
-                  onClick={() => setDate(d)}
-                >
-                  <span className="wd">{JOURS_COURTS[i]}</span>
-                  <span className="dn num">{parseISO(d).d}</span>
-                  <span className="dots">{(counts.get(d) ?? []).map((c, j) => <i key={j} style={{ background: c }} />)}</span>
-                </button>
-              ))}
-            </div>
+          <div className="weekstrip">
+            {week.map((d, i) => (
+              <button
+                key={d}
+                className={`daypill ${d === date ? 'on' : ''} ${d === today ? 'today' : ''}`}
+                onClick={() => setDate(d)}
+              >
+                <span className="wd">{JOURS_COURTS[i]}</span>
+                <span className="dn num">{parseISO(d).d}</span>
+                <span className="dots">{(counts.get(d) ?? []).map((c, j) => <i key={j} style={{ background: c }} />)}</span>
+              </button>
+            ))}
           </div>
         )}
+        <div className="strip-toggle">
+          <button onClick={() => setMode(mode === 'day' ? 'week' : 'day')} aria-label={mode === 'day' ? 'Afficher la semaine' : 'Afficher la journée'}>
+            {mode === 'day' ? <ChevronDown size={22} /> : <ChevronUp size={22} />}
+            <span>{mode === 'day' ? 'Vue semaine' : 'Vue jour'}</span>
+          </button>
+        </div>
 
-        <div className="chips" style={{ marginTop: 12 }}>
+        <div className="chips" style={{ marginTop: 4 }}>
           <button className={`chip ${filter === null ? 'on' : ''}`} onClick={() => setFilter(null)}>Tout</button>
           {categories.map((c) => (
             <button key={c.id} className={`chip ${filter === c.id ? 'on' : ''}`} onClick={() => setFilter(filter === c.id ? null : c.id)}>
@@ -131,7 +129,7 @@ export default function AgendaScreen() {
           days={days}
           items={visible}
           rich={mode === 'day'}
-          hourHeight={mode === 'day' ? 68 : 46}
+          hourHeight={mode === 'day' ? 76 : 48}
           today={today}
           nowMinutes={minutes}
           colorOf={colorOf}

@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, Flame, Pencil, Plus, Snowflake } from 'lucide-react';
+import { CalendarClock, Check, CheckCheck, ChevronLeft, ChevronRight, Flame, Hourglass, ListTodo, Pencil, Plus, Target } from 'lucide-react';
+import Hello from '../components/Hello';
 import { Ring, Segmented, useUI, vibrate } from '../components/ui';
 import { toggleHabit } from '../lib/actions';
 import {
-  addDays, addMonths, daysInMonth, JOURS_LETTRE, labelDate, labelDay, labelMonthYear, maxDate, minDate, startOfMonth, weekday,
+  addDays, addMonths, daysInMonth, JOURS_COURTS, JOURS_LETTRE, labelDate, labelDay, labelMonthYear, maxDate, minDate, startOfMonth, weekday,
 } from '../lib/dates';
 import { challengeProgress, dayScore, habitRate, habitsForDay } from '../lib/stats';
 import { update, useApp } from '../lib/store';
-import type { AppState, ISODate } from '../lib/types';
+import type { AppState, Habit, ISODate } from '../lib/types';
 import { useNow } from '../useNow';
 
 type Tab = 'today' | 'calendar' | 'progress';
@@ -24,18 +25,18 @@ export default function WinterArcScreen() {
 
   return (
     <div className="screen">
-      <div className="topbar">
-        <div>
-          <div className="eyebrow row" style={{ gap: 6 }}>
-            <Snowflake size={14} />
-            {before ? `Commence le ${labelDate(challenge.startDate)}` : after ? 'Challenge terminé' : `Jour ${progress.dayIndex} sur ${progress.totalDays}`}
-          </div>
-          <h1 className="title">{challenge.name}</h1>
-        </div>
-        <button className="icon-btn" onClick={() => ui.open({ type: 'challenge' })} aria-label="Modifier le challenge">
-          <Pencil size={18} />
-        </button>
-      </div>
+      <Hello
+        right={
+          <>
+            <button className="icon-btn dark" onClick={() => ui.open({ type: 'habit' })} aria-label="Nouvelle habitude"><Plus size={20} /></button>
+            <button className="icon-btn" onClick={() => ui.open({ type: 'challenge' })} aria-label="Modifier le challenge"><Pencil size={18} /></button>
+          </>
+        }
+      />
+
+      <h1 className="display">
+        {before ? <>Ton {challenge.name}<br />commence bientôt</> : after ? <>{challenge.name}<br />terminé 🎉</> : <>Jour {progress.dayIndex} de ton<br />{challenge.name}</>}
+      </h1>
 
       <Segmented<Tab>
         value={tab}
@@ -48,7 +49,7 @@ export default function WinterArcScreen() {
       />
 
       <div style={{ marginTop: 16 }}>
-        {tab === 'today' && <DayView initial={minDate(maxDate(today, challenge.startDate), challenge.endDate)} />}
+        {tab === 'today' && <DayView initial={minDate(maxDate(today, challenge.startDate), challenge.endDate)} onHistory={() => setTab('calendar')} />}
         {tab === 'calendar' && <HistoryView />}
         {tab === 'progress' && <ProgressView />}
       </div>
@@ -64,16 +65,21 @@ function useAppState(): AppState {
   return useMemo(() => ({ challenge, habits, habitLog }) as AppState, [challenge, habits, habitLog]);
 }
 
+const scheduleLabel = (h: Habit) => (h.days ? h.days.map((d) => JOURS_COURTS[d]).join(', ') : 'Tous les jours');
+
 // ---------------------------------------------------------------- Checklist d'un jour
-export function HabitChecklist({ date }: { date: ISODate }) {
+type Filter = 'all' | 'todo' | 'done';
+
+export function HabitChecklist({ date, filter = 'all' }: { date: ISODate; filter?: Filter }) {
   const ui = useUI();
   const state = useAppState();
   const log = state.habitLog[date] ?? {};
-  const list = habitsForDay(state, date);
+  const all = habitsForDay(state, date);
+  const list = all.filter((h) => (filter === 'all' ? true : filter === 'done' ? !!log[h.id] : !log[h.id]));
   const { today } = useNow();
   const future = date > today;
 
-  if (!list.length) {
+  if (!all.length) {
     return (
       <div className="card empty">
         <div className="t">Aucune habitude prévue ce jour-là</div>
@@ -83,6 +89,9 @@ export function HabitChecklist({ date }: { date: ISODate }) {
         </button>
       </div>
     );
+  }
+  if (!list.length) {
+    return <div className="card empty"><div className="t">{filter === 'todo' ? 'Tout est validé 🎉' : 'Rien de validé pour l’instant'}</div></div>;
   }
   return (
     <div>
@@ -100,12 +109,10 @@ export function HabitChecklist({ date }: { date: ISODate }) {
             }}
             aria-pressed={done}
           >
-            <span className="emo">{h.emoji}</span>
-            <span className="grow">
-              <div className="name">{h.name}</div>
-              <div className="tgt">{h.target}{h.days ? ` · ${h.days.map((d) => JOURS_LETTRE[d]).join(' ')}` : ''}</div>
-            </span>
-            <span className={`check ${done ? 'on' : ''}`}><Check size={18} strokeWidth={3} /></span>
+            <span className="kicker"><i /> {scheduleLabel(h)}</span>
+            <div className="name"><span>{h.emoji}</span> {h.name}</div>
+            <div className="tgt"><Target size={14} /> {h.target || 'Objectif du jour'}</div>
+            <span className={`check ${done ? 'on' : ''}`}><Check size={20} strokeWidth={3} /></span>
           </button>
         );
       })}
@@ -114,52 +121,70 @@ export function HabitChecklist({ date }: { date: ISODate }) {
   );
 }
 
-function DayView({ initial }: { initial: ISODate }) {
+function DayView({ initial, onHistory }: { initial: ISODate; onHistory: () => void }) {
   const { today } = useNow();
   const state = useAppState();
   const [date, setDate] = useState(initial);
+  const [filter, setFilter] = useState<Filter>('all');
   const { done, total } = dayScore(state, date);
   const p = challengeProgress(state, today);
   const { startDate, endDate } = state.challenge;
   const isToday = date === today;
+  const pct = total ? Math.round((done / total) * 100) : 0;
 
   return (
     <>
       <div className="hero">
-        <div className="row" style={{ alignItems: 'center', gap: 16 }}>
-          <Ring value={total ? done / total : 0} size={108} stroke={11}>
-            <div className="v">{done}/{total}</div>
-            <div className="s">validées</div>
+        <div className="hero-title">
+          <span>{isToday ? 'Progression du jour' : labelDay(date)}</span>
+          <span className="row" style={{ gap: 6 }}>
+            <button className="icon-btn sm" disabled={date <= startDate} onClick={() => setDate(addDays(date, -1))} aria-label="Jour précédent">
+              <ChevronLeft size={17} />
+            </button>
+            <button className="icon-btn sm" disabled={date >= minDate(today, endDate)} onClick={() => setDate(addDays(date, 1))} aria-label="Jour suivant">
+              <ChevronRight size={17} />
+            </button>
+          </span>
+        </div>
+        <div className="hero-split">
+          <Ring value={total ? done / total : 0} size={118} stroke={12}>
+            <div className="v">{pct} %</div>
           </Ring>
-          <div className="grow">
-            <div className="muted small">{isToday ? 'Aujourd’hui' : date < today ? 'Correction' : 'À venir'}</div>
-            <div style={{ fontSize: 19, fontWeight: 600, letterSpacing: '-0.02em', marginTop: 2 }}>{labelDay(date)}</div>
-            <div className="row small" style={{ marginTop: 10, gap: 12 }}>
-              <span className="row" style={{ gap: 4 }}><Flame size={15} color="#ffb86b" /> {p.currentStreak} j</span>
-              <span className="muted">{Math.round(p.rate * 100)} % global</span>
-            </div>
+          <span className="divider" />
+          <div className="stat-list">
+            <div className="stat"><span className="ic"><ListTodo size={15} /></span><div><div className="v">{total}</div><div className="l">Habitudes prévues</div></div></div>
+            <div className="stat"><span className="ic"><CheckCheck size={15} /></span><div><div className="v">{done}</div><div className="l">Validées</div></div></div>
+            <div className="stat"><span className="ic"><Hourglass size={15} /></span><div><div className="v">{total - done}</div><div className="l">Restantes</div></div></div>
           </div>
         </div>
-        <div className="row" style={{ marginTop: 14, justifyContent: 'space-between' }}>
-          <button className="icon-btn sm" style={{ background: 'rgba(255,255,255,0.08)', color: 'inherit' }} disabled={date <= startDate}
-            onClick={() => setDate(addDays(date, -1))} aria-label="Jour précédent">
-            <ChevronLeft size={18} />
-          </button>
-          <button className="small" style={{ color: 'inherit', opacity: isToday ? 0.5 : 1 }} disabled={isToday} onClick={() => setDate(minDate(maxDate(today, startDate), endDate))}>
-            {isToday ? 'Touchez une habitude pour la valider' : 'Revenir à aujourd’hui'}
-          </button>
-          <button className="icon-btn sm" style={{ background: 'rgba(255,255,255,0.08)', color: 'inherit' }} disabled={date >= minDate(today, endDate)}
-            onClick={() => setDate(addDays(date, 1))} aria-label="Jour suivant">
-            <ChevronRight size={18} />
-          </button>
+        <div className="row small muted" style={{ marginTop: 14, gap: 14 }}>
+          <span className="row" style={{ gap: 5, color: 'var(--hero-ink)' }}><Flame size={15} color="#ffb86b" /> {p.currentStreak} j de série</span>
+          <span>{Math.round(p.rate * 100)} % de réussite globale</span>
+          {!isToday && (
+            <button className="row" style={{ gap: 4, marginLeft: 'auto', color: 'var(--hero-ink)' }} onClick={() => setDate(minDate(maxDate(today, startDate), endDate))}>
+              <CalendarClock size={14} /> Aujourd’hui
+            </button>
+          )}
         </div>
       </div>
+
       <div className="section">
         <div className="section-head">
-          <h3 className="section-title">Habitudes du jour</h3>
-          <span className="link num">{done}/{total}</span>
+          <h3 className="section-title">{isToday ? 'Habitudes du jour' : 'Corriger ce jour'}</h3>
+          <button className="link" onClick={onHistory}>Historique</button>
         </div>
-        <HabitChecklist date={date} />
+        <div className="chips" style={{ marginBottom: 12 }}>
+          <button className={`chip ${filter === 'todo' ? 'lime' : ''}`} onClick={() => setFilter(filter === 'todo' ? 'all' : 'todo')}>
+            <span className="count">{total - done}</span> À faire
+          </button>
+          <button className={`chip ${filter === 'done' ? 'lime' : ''}`} onClick={() => setFilter(filter === 'done' ? 'all' : 'done')}>
+            <span className="count">{done}</span> Validées
+          </button>
+          <button className={`chip ${filter === 'all' ? 'lime' : ''}`} onClick={() => setFilter('all')}>
+            <span className="count">{total}</span> Toutes
+          </button>
+        </div>
+        <HabitChecklist date={date} filter={filter} />
       </div>
     </>
   );

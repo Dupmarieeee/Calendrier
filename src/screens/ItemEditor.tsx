@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, ExternalLink, Lock, Plus, Repeat, Trash2, X } from 'lucide-react';
+import { ArrowRight, CalendarDays, Check, Clock, Clock4, ExternalLink, Hourglass, Lock, Plus, Repeat, Trash2, X } from 'lucide-react';
 import { ChoiceSheet, GoogleMark, Segmented, Sheet, Switch, useUI, type ItemPreset } from '../components/ui';
 import {
   CATEGORY_COLORS, createItem, deleteItem, isRecurring, newId, setItemSync, updateItem, upsertCategory,
@@ -151,6 +151,7 @@ export default function ItemEditor({ id, preset, onClose }: Props) {
       <Sheet
         title={title}
         onClose={onClose}
+        onConfirm={() => save()}
         footer={
           <>
             {existing && !readOnly && (
@@ -159,7 +160,7 @@ export default function ItemEditor({ id, preset, onClose }: Props) {
               </button>
             )}
             <button className="btn primary grow" onClick={() => save()}>
-              <Check size={18} /> {existing ? 'Enregistrer' : 'Créer'}
+              {existing ? 'Enregistrer' : d.kind === 'task' ? 'Créer la tâche' : 'Créer le créneau'}
             </button>
           </>
         }
@@ -171,15 +172,21 @@ export default function ItemEditor({ id, preset, onClose }: Props) {
         />
 
         <label className="field">
+          <span className="label">Titre</span>
           <input
-            className="input big"
-            placeholder={d.kind === 'task' ? 'Que faut-il faire ?' : 'Titre du créneau'}
+            className="input"
+            placeholder={d.kind === 'task' ? 'ex. Appeler la banque' : 'ex. Séance jambes'}
             value={d.title}
             disabled={readOnly}
             autoFocus={!existing}
             enterKeyHint="done"
             onChange={(e) => set({ title: e.target.value })}
           />
+        </label>
+
+        <label className="field">
+          <span className="label">Notes {existing?.g || d.sync ? '· synchronisées avec Google' : ''}</span>
+          <textarea className="textarea" value={d.notes} disabled={readOnly} placeholder="Détails, lien, adresse…" onChange={(e) => set({ notes: e.target.value })} />
         </label>
 
         {existing?.g && (
@@ -198,34 +205,44 @@ export default function ItemEditor({ id, preset, onClose }: Props) {
           </div>
         )}
 
-        <div className="card" style={{ marginTop: 14, padding: '6px 14px' }}>
-          <div className="list-row">
-            <span className="grow ttl">Date</span>
-            <input type="date" className="input" style={{ width: 'auto', minHeight: 40, padding: '8px 12px' }} value={d.date} disabled={readOnly}
-              onChange={(e) => e.target.value && set({ date: e.target.value })} />
+        <div className="field">
+          <div className="row" style={{ justifyContent: 'space-between', margin: '0 2px 8px' }}>
+            <span className="label" style={{ margin: 0 }}>Date et horaire</span>
+            <span className="row small muted" style={{ gap: 8 }}>
+              Horaire
+              <Switch checked={hasTime} disabled={readOnly} label="Horaire" onChange={(v) => set(v ? { start: '09:00', end: '10:00' } : { start: null, end: null })} />
+            </span>
           </div>
-          <div className="list-row">
-            <div className="grow">
-              <div className="ttl">Horaire</div>
-              {!hasTime && <div className="tiny muted">Sans créneau : affiché dans la journée, hors statistiques</div>}
+          <div className={hasTime || d.kind === 'event' ? 'two' : ''}>
+            <div className="input-icon">
+              <CalendarDays size={17} />
+              <input type="date" className="input" value={d.date} disabled={readOnly} aria-label="Date"
+                onChange={(e) => e.target.value && set({ date: e.target.value })} />
             </div>
-            <Switch checked={hasTime} disabled={readOnly} label="Horaire" onChange={(v) => set(v ? { start: '09:00', end: '10:00' } : { start: null, end: null })} />
+            {!hasTime && d.kind === 'event' && (
+              <div className="input-icon">
+                <ArrowRight size={17} />
+                <input type="date" className="input" min={d.date} value={d.endDate ?? d.date} disabled={readOnly} aria-label="Jusqu’au"
+                  onChange={(e) => set({ endDate: e.target.value > d.date ? e.target.value : undefined })} />
+              </div>
+            )}
+            {hasTime && <div className="input-icon"><Hourglass size={17} /><div className="input" style={{ paddingLeft: 42, display: 'flex', alignItems: 'center' }}>{formatDuration(duration)}</div></div>}
           </div>
           {hasTime ? (
             <>
-              <div className="list-row">
-                <span className="grow ttl">Début</span>
-                <input type="time" step={300} className="input" style={{ width: 'auto', minHeight: 40, padding: '8px 12px' }} value={d.start!} disabled={readOnly} onChange={(e) => setStart(e.target.value)} />
-              </div>
-              <div className="list-row">
-                <div className="grow">
-                  <div className="ttl">Fin</div>
-                  <div className="tiny muted">{formatDuration(duration)}{crossesMidnight ? ' · se termine le lendemain' : ''}</div>
+              <div className="two" style={{ marginTop: 10 }}>
+                <div className="input-icon">
+                  <Clock size={17} />
+                  <input type="time" step={300} className="input" value={d.start!} disabled={readOnly} aria-label="Début" onChange={(e) => setStart(e.target.value)} />
                 </div>
-                <input type="time" step={300} className="input" style={{ width: 'auto', minHeight: 40, padding: '8px 12px' }} value={d.end ?? ''} disabled={readOnly} onChange={(e) => e.target.value && set({ end: e.target.value })} />
+                <div className="input-icon">
+                  <Clock4 size={17} />
+                  <input type="time" step={300} className="input" value={d.end ?? ''} disabled={readOnly} aria-label="Fin" onChange={(e) => e.target.value && set({ end: e.target.value })} />
+                </div>
               </div>
+              {crossesMidnight && <p className="tiny muted" style={{ margin: '6px 4px 0' }}>Se termine le lendemain.</p>}
               {!readOnly && (
-                <div className="chips" style={{ margin: '4px -14px 8px', paddingInline: 14 }}>
+                <div className="chips" style={{ marginTop: 10 }}>
                   {DURATIONS.map((m) => (
                     <button key={m} className={`chip ${duration === m ? 'on' : ''}`} onClick={() => set({ end: fromMinutes(Math.min(1440, toMinutes(d.start!) + m)) })}>
                       {formatDuration(m)}
@@ -234,22 +251,17 @@ export default function ItemEditor({ id, preset, onClose }: Props) {
                 </div>
               )}
             </>
-          ) : d.kind === 'event' ? (
-            <div className="list-row">
-              <span className="grow ttl">Jusqu’au</span>
-              <input type="date" className="input" style={{ width: 'auto', minHeight: 40, padding: '8px 12px' }} min={d.date} value={d.endDate ?? d.date} disabled={readOnly}
-                onChange={(e) => set({ endDate: e.target.value > d.date ? e.target.value : undefined })} />
-            </div>
-          ) : null}
+          ) : (
+            <p className="tiny muted" style={{ margin: '8px 4px 0' }}>Sans créneau : affiché dans la journée, non compté dans les statistiques.</p>
+          )}
         </div>
 
         <div className="field">
           <span className="label">Catégorie</span>
           <div className="chips">
-            <button className={`chip ${d.categoryId === null ? 'on' : ''}`} onClick={() => set({ categoryId: null })}>Aucune</button>
             {categories.map((c) => (
-              <button key={c.id} className={`chip ${d.categoryId === c.id ? 'on' : ''}`} onClick={() => set({ categoryId: c.id })}>
-                <span className="dot" style={{ background: c.color }} /> {c.name}
+              <button key={c.id} className={`tag ${d.categoryId === c.id ? 'on' : ''}`} style={{ ['--c' as any]: c.color }} onClick={() => set({ categoryId: d.categoryId === c.id ? null : c.id })}>
+                {c.name}
               </button>
             ))}
             <button className="chip outline" onClick={() => setNewCat({ name: '', color: CATEGORY_COLORS[categories.length % CATEGORY_COLORS.length] })}>
@@ -322,10 +334,7 @@ export default function ItemEditor({ id, preset, onClose }: Props) {
           </div>
         </div>
 
-        <label className="field">
-          <span className="label">Notes {existing?.g || d.sync ? '· synchronisées avec la description Google' : ''}</span>
-          <textarea className="textarea" value={d.notes} disabled={readOnly} placeholder="Détails, lien, adresse…" onChange={(e) => set({ notes: e.target.value })} />
-        </label>
+
 
         {(!existing || existing.origin === 'app') && (
           <div className="card row" style={{ marginTop: 14 }}>

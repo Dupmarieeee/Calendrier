@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import type { ISODate } from '../lib/types';
 
 // ------------------------------------------------------------ Contexte d'interface
@@ -29,8 +29,8 @@ export const useUI = () => useContext(UIContext);
 
 // ------------------------------------------------------------ Feuille
 export function Sheet({
-  title, onClose, children, footer, left,
-}: { title?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; left?: ReactNode }) {
+  title, onClose, children, footer, onConfirm,
+}: { title?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; onConfirm?: () => void }) {
   const [closing, setClosing] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const drag = useRef<{ y: number; dy: number } | null>(null);
@@ -71,11 +71,15 @@ export function Sheet({
         <div onPointerDown={onGripDown} onPointerMove={onGripMove} onPointerUp={onGripUp} style={{ touchAction: 'none', paddingBottom: 2 }}>
           <div className="sheet-grip" />
           <div className="sheet-head">
-            <div style={{ width: 36 }}>{left}</div>
-            <h2>{title}</h2>
-            <button className="icon-btn sm" onClick={close} aria-label="Fermer">
-              <X size={18} />
+            <button className="icon-btn" onClick={close} aria-label="Fermer">
+              <X size={19} />
             </button>
+            <h2>{title}</h2>
+            {onConfirm ? (
+              <button className="icon-btn dark" onClick={onConfirm} aria-label="Valider">
+                <Check size={19} strokeWidth={2.6} />
+              </button>
+            ) : <span style={{ width: 46 }} />}
           </div>
         </div>
         <div className="sheet-body">{children}</div>

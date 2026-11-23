@@ -145,5 +145,5 @@ export interface AppState {
   /** date → id d'habitude → validée */
   habitLog: Record<ISODate, Record<string, boolean>>;
   google: GoogleState;
-  settings: { theme: ThemePref };
+  settings: { theme: ThemePref; name?: string };
 }
