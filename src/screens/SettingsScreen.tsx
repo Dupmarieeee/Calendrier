@@ -36,9 +36,12 @@ function GoogleCard() {
         <span className="icon-btn" style={{ background: 'var(--surface-2)' }}><GoogleMark size={22} /></span>
         <div className="grow">
           <div className="ttl" style={{ fontWeight: 600 }}>Google Agenda</div>
-          <div className="tiny muted">{connected && g.email ? g.email : 'Synchronisation dans les deux sens'}</div>
+          <div className="tiny muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{connected && g.email ? g.email : 'Synchronisation dans les deux sens'}</div>
+          <span className={`badge ${badge.cls}`} style={{ marginTop: 6 }} role="status">
+            {badge.cls === 'ok' && <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'currentColor' }} />}
+            {badge.text}
+          </span>
         </div>
-        <span className={`badge ${badge.cls}`}>{badge.text}</span>
       </div>
 
       {rt.configured === false && (

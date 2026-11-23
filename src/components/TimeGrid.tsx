@@ -34,6 +34,7 @@ interface DragState {
   end: number; // minutes, peut dépasser 1440 si fin le lendemain
   colW: number;
   lastY: number;
+  lockTop?: number;
   view?: { date: ISODate; start: number; end: number };
 }
 
@@ -143,6 +144,11 @@ export default function TimeGrid(p: Props) {
 
   function activate(st: DragState) {
     st.active = true;
+    // Bloque le défilement de la grille pendant le glisser-déposer
+    if (scrollRef.current) {
+      st.lockTop = scrollRef.current.scrollTop;
+      scrollRef.current.style.overflowY = 'hidden';
+    }
     vibrate(12);
     setArmed(null);
     st.view = { date: p.days[st.dayIdx], start: st.start, end: st.end };
@@ -153,6 +159,7 @@ export default function TimeGrid(p: Props) {
     const st = dragRef.current;
     if (st?.timer) clearTimeout(st.timer);
     dragRef.current = null;
+    if (scrollRef.current) scrollRef.current.style.overflowY = '';
     window.removeEventListener('pointermove', stable.move);
     window.removeEventListener('pointerup', stable.up);
     window.removeEventListener('pointercancel', stable.cancel);
@@ -174,8 +181,12 @@ export default function TimeGrid(p: Props) {
     // Défilement automatique près des bords
     const el = scrollRef.current!;
     const r = el.getBoundingClientRect();
-    if (e.clientY < r.top + 60) el.scrollTop -= 12;
-    else if (e.clientY > r.bottom - 120) el.scrollTop += 12;
+    let lock = st.lockTop ?? el.scrollTop;
+    if (e.clientY < r.top + 60) lock -= 12;
+    else if (e.clientY > r.bottom - 120) lock += 12;
+    st.lockTop = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, lock));
+    // Annule tout défilement natif : seule l'auto-défilement près des bords fait bouger la grille
+    el.scrollTop = st.lockTop;
     const v = computeView(st, e.clientX, e.clientY);
     if (!st.view || v.date !== st.view.date || v.start !== st.view.start || v.end !== st.view.end) {
       if (st.view && (v.start !== st.view.start || v.date !== st.view.date || v.end !== st.view.end)) vibrate(4);
@@ -353,7 +364,7 @@ export default function TimeGrid(p: Props) {
                           <div className="t">{it.title}</div>
                           {(p.rich || height > 34) && (
                             <div className="h">
-                              {formatHour(it.start!)}{p.rich || l.cols === 1 ? ` – ${formatHour(it.end!)}` : ''}
+                              {formatHour(it.start!)}{p.rich ? ` – ${formatHour(it.end!)}` : ''}
                             </div>
                           )}
                         </div>

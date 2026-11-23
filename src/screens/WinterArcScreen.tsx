@@ -182,7 +182,11 @@ function HistoryView() {
         <span><i style={{ background: 'var(--surface)', border: '1px solid var(--line)' }} /> Rien</span>
       </div>
       <p className="small muted" style={{ margin: '0 4px 14px' }}>Touchez un jour passé pour corriger une case oubliée.</p>
-      {[...months].reverse().map((m) => {
+      {[
+        // Mois en cours d'abord, puis les mois passés, puis ceux à venir
+        ...months.filter((m) => m <= startOfMonth(today)).reverse(),
+        ...months.filter((m) => m > startOfMonth(today)),
+      ].map((m) => {
         const offset = weekday(m);
         const n = daysInMonth(m);
         return (
